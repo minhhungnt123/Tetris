@@ -174,7 +174,7 @@ public class Board : MonoBehaviour
         Time.timeScale = 1;
     }
 
-    //Xử lý khối
+    //Lấy khối tiếp theo
     private TetrominoData GetNextTetromino()
     {
         TetrominoData nextData;
@@ -255,7 +255,7 @@ public class Board : MonoBehaviour
             this.tilemap.SetTile(tilePosition, null);
         }
     }
-    //Kiểm tra tính hợp lệ của vị trí
+    //Xử lý va chạm
     public bool IsValidPosition(Piece piece, Vector3Int position)
     {
         RectInt bounds = this.Bounds;
