@@ -196,7 +196,7 @@ public class Board : MonoBehaviour
 
         return nextData;
     }
-    
+    //Sinh khối
     public void SpawnPiece(TetrominoData? specificData = null)
     {
         if (isGameOver) return;
@@ -224,7 +224,7 @@ public class Board : MonoBehaviour
         hasUsedHold = false;
     }
 
-
+    //Ô hiển thị khối tiếp theo
 
     private void DisplayNextPiece(TetrominoData data)
     {
@@ -296,6 +296,7 @@ public class Board : MonoBehaviour
         }
         AddScore(linesCleared);
     }
+    //Kiểm tra hàng đã đầy hay chưa
     private bool IsLineFull(int row)
     {
         RectInt bounds = this.Bounds;
@@ -310,7 +311,7 @@ public class Board : MonoBehaviour
         }
         return true ;
     }
-
+    //Xóa hàng
     private void LineClear(int row)
     {
         RectInt bounds = this.Bounds;
@@ -361,7 +362,7 @@ public class Board : MonoBehaviour
 
         Debug.Log($"Score: {this.score}");
     }
-
+    //Tăng cấp
     private void LevelUp()
     {
         this.level++;
@@ -390,6 +391,7 @@ public class Board : MonoBehaviour
             }
         }
     }
+    //Giữ khối
     public void HoldPiece()
     {
         if (hasUsedHold) return;
