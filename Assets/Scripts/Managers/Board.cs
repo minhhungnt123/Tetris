@@ -96,13 +96,21 @@ public class Board : MonoBehaviour
 
     private void HandleLevelChanged(int level)
     {
-        if (this.activePiece != null)
-        {
-            float newStepDelay = Mathf.Max(0.1f, this.activePiece.stepDelay * 0.9f);
-            this.activePiece.UpdateStepDelay(newStepDelay);
-        }
+        if (isGameOver) return;
+
+        isPaused = true;
+        pausePanel.SetActive(true);
+        Time.timeScale = 0;
     }
 
+    public void ResumeGame()
+    {
+        isPaused = false;
+        pausePanel.SetActive(false);
+        Time.timeScale = 1;
+    }
+
+    //Xử lý khối
     private TetrominoData GetNextTetromino()
     {
         TetrominoData nextData;
@@ -120,7 +128,7 @@ public class Board : MonoBehaviour
         }
         return nextData;
     }
-
+    
     public void SpawnPiece(TetrominoData? specificData = null)
     {
         if (GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
@@ -145,6 +153,8 @@ public class Board : MonoBehaviour
         DisplayNextPiece(nextTetromino);
         hasUsedHold = false;
     }
+
+
 
     private void DisplayNextPiece(TetrominoData data)
     {
@@ -176,7 +186,7 @@ public class Board : MonoBehaviour
             this.tilemap.SetTile(tilePosition, null);
         }
     }
-
+    //Kiểm tra tính hợp lệ của vị trí
     public bool IsValidPosition(Piece piece, Vector3Int position)
     {
         RectInt bounds = this.Bounds;
@@ -219,7 +229,6 @@ public class Board : MonoBehaviour
             GameManager.Instance.AddScore(linesCleared);
         }
     }
-
     private bool IsLineFull(int row)
     {
         RectInt bounds = this.Bounds;
@@ -234,7 +243,7 @@ public class Board : MonoBehaviour
         }
         return true ;
     }
-
+    //Xóa hàng
     private void LineClear(int row)
     {
         RectInt bounds = this.Bounds;
@@ -256,7 +265,47 @@ public class Board : MonoBehaviour
             row++;
         }
     }
+    //Xử lý điểm số
+    private void AddScore(int linesCleared)
+    {
+        int point = 0;
 
+        switch (linesCleared)
+        {
+            case 1: point = 50 * (level + 1); break;
+            case 2: point = 100 * (level + 1); break;
+            case 3: point = 300 * (level + 1); break;
+            case 4: point = 1200 * (level + 1); break;
+            default: point = 0; break;
+        }
+        this.score += point;
+
+        if (scoreText != null)
+        {
+            scoreText.text = $"Score: {this.score}";
+        }
+        this.linesCleared++;
+        if (this.linesCleared >= this.level * linesPerLevel)
+        {
+            LevelUp();
+        }
+
+        Debug.Log($"Score: {this.score}");
+    }
+
+    private void LevelUp()
+    {
+        this.level++;
+
+        float newStepDelay = Mathf.Max(0.1f, this.activePiece.stepDelay * 0.9f);
+        this.activePiece.UpdateStepDelay(newStepDelay);
+
+        if (levelText != null)
+        {
+            levelText.text = $"Level: {this.level}";
+        }
+    }
+    //Xử lý chức năng giữ khối
     private void DisplayHoldPiece()
     {
         if (this.holdPieceTilemap == null) return;
@@ -273,7 +322,6 @@ public class Board : MonoBehaviour
             }
         }
     }
-
     public void HoldPiece()
     {
         if (hasUsedHold) return;
