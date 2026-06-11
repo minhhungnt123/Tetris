@@ -1,10 +1,12 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
+using System;
 
 public class Piece : MonoBehaviour
 {
+    public event Action OnPieceUpdated;
     public Board board { get; private set; }
     public TetrominoData data { get; private set; }
     public Vector3Int[] cells { get; private set; }
@@ -36,54 +38,80 @@ public class Piece : MonoBehaviour
             this.cells[i] = (Vector3Int)data.cells[i];
     }
 
-    //Xử lý phím tắt
     private void Update()
     {
-        if (board != null && (board.IsGameOver || board.IsPaused))
+        if (this.board == null)
             return;
 
-        this.board.Clear(this);
+        if (GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused))
+            return;
 
         this.lockTime += Time.deltaTime;
 
-        if (Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.UpArrow))
+        if (Time.time > this.stepTime)
         {
-            Rotate(-1);
-        }else if (Input.GetKeyDown(KeyCode.E))
-        {
-            Rotate(1);
-        }
-        if (Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.LeftArrow))
-        {
-            Move(Vector2Int.left);
-        }else if (Input.GetKeyDown(KeyCode.D) || Input.GetKeyDown(KeyCode.RightArrow))
-        {
-            Move(Vector2Int.right);
-        }
-        if(Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.DownArrow))
-        {
-            Move(Vector2Int.down);
-        }
-        if (Input.GetKeyDown(KeyCode.Space)){
-            HardDrop();
-        }
-        if(Time.time > this.stepTime)
-        {
+            this.board.Clear(this);
+            Vector3Int oldPosition = this.position;
+            
             Step();
+            
+            this.board.Set(this);
+            if (this.position != oldPosition)
+            {
+                OnPieceUpdated?.Invoke();
+            }
         }
-        if (Input.GetKeyDown(KeyCode.C))
-        {
-            board.HoldPiece();
-        }
-        if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
-        {
-            UpdateStepDelay(0.1f);
-        }
-        else
-        {
-            UpdateStepDelay(1.0f);
-        }
+    }
+
+    public void MovePiece(Vector2Int transition)
+    {
+        this.board.Clear(this);
+        Vector3Int oldPosition = this.position;
+        
+        Move(transition);
+        
         this.board.Set(this);
+        if (this.position != oldPosition)
+        {
+            OnPieceUpdated?.Invoke();
+        }
+    }
+
+    public void RotatePiece(int direction)
+    {
+        this.board.Clear(this);
+        int oldRotation = this.rotationIndex;
+        
+        Rotate(direction);
+        
+        this.board.Set(this);
+        if (this.rotationIndex != oldRotation)
+        {
+            OnPieceUpdated?.Invoke();
+        }
+    }
+
+    public void HardDropPiece()
+    {
+        this.board.Clear(this);
+        Vector3Int oldPosition = this.position;
+        
+        HardDrop();
+        
+        if (this.position != oldPosition)
+        {
+            OnPieceUpdated?.Invoke();
+        }
+    }
+
+    public void Hold()
+    {
+        board.HoldPiece();
+    }
+
+    public void SetFastDrop(bool isFast)
+    {
+        UpdateStepDelay(isFast ? 0.1f : 1.0f);
     }
     //Xử lý khối rơi theo thời gian nhất định
     private void Step()
@@ -136,9 +164,7 @@ public class Piece : MonoBehaviour
         for (int i = 0; i < this.cells.Length; i++)
         {
             Vector3 cell = this.cells[i];
-
             int x, y;
-
             switch (this.data.tetromino)
             {
                 case Tetromino.I:
@@ -148,13 +174,11 @@ public class Piece : MonoBehaviour
                     x = Mathf.CeilToInt((cell.x * Data.RotationMatrix[0] * direction) + (cell.y * Data.RotationMatrix[1] * direction));
                     y = Mathf.CeilToInt((cell.x * Data.RotationMatrix[2] * direction) + (cell.y * Data.RotationMatrix[3] * direction));
                     break;
-
                 default:
                     x = Mathf.RoundToInt((cell.x * Data.RotationMatrix[0] * direction) + (cell.y * Data.RotationMatrix[1] * direction));
                     y = Mathf.RoundToInt((cell.x * Data.RotationMatrix[2] * direction) + (cell.y * Data.RotationMatrix[3] * direction));
                     break;
             }
-
             this.cells[i] = new Vector3Int(x, y, 0);
         }
     }
@@ -210,9 +234,13 @@ public class Piece : MonoBehaviour
             return min + (input - min) % (max - min);
         }
     }
-    //Cập nhật lại khoản trễ độ rơi khi tăng cấp
     public void UpdateStepDelay(float newStepDelay)
     {
         this.stepDelay = newStepDelay;
+    }
+
+    public void TriggerPieceUpdated()
+    {
+        OnPieceUpdated?.Invoke();
     }
 }
