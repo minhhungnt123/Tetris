@@ -19,7 +19,23 @@ public class Ghost : MonoBehaviour
         this.cells = new Vector3Int[4];
     }
 
-    private void LateUpdate()
+    private void Start()
+    {
+        if (this.trackingPiece != null)
+        {
+            this.trackingPiece.OnPieceUpdated += HandlePieceUpdated;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (this.trackingPiece != null)
+        {
+            this.trackingPiece.OnPieceUpdated -= HandlePieceUpdated;
+        }
+    }
+
+    private void HandlePieceUpdated()
     {
         Clear();
         Copy();
