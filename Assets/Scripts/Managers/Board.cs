@@ -96,18 +96,11 @@ public class Board : MonoBehaviour
 
     private void HandleLevelChanged(int level)
     {
-        if (isGameOver) return;
-
-        isPaused = true;
-        pausePanel.SetActive(true);
-        Time.timeScale = 0;
-    }
-
-    public void ResumeGame()
-    {
-        isPaused = false;
-        pausePanel.SetActive(false);
-        Time.timeScale = 1;
+        if (this.activePiece != null)
+        {
+            float newStepDelay = Mathf.Max(0.1f, 1.0f * Mathf.Pow(0.9f, level - 1));
+            this.activePiece.UpdateStepDelay(newStepDelay);
+        }
     }
 
     //Xử lý khối
@@ -265,46 +258,7 @@ public class Board : MonoBehaviour
             row++;
         }
     }
-    //Xử lý điểm số
-    private void AddScore(int linesCleared)
-    {
-        int point = 0;
 
-        switch (linesCleared)
-        {
-            case 1: point = 50 * (level + 1); break;
-            case 2: point = 100 * (level + 1); break;
-            case 3: point = 300 * (level + 1); break;
-            case 4: point = 1200 * (level + 1); break;
-            default: point = 0; break;
-        }
-        this.score += point;
-
-        if (scoreText != null)
-        {
-            scoreText.text = $"Score: {this.score}";
-        }
-        this.linesCleared++;
-        if (this.linesCleared >= this.level * linesPerLevel)
-        {
-            LevelUp();
-        }
-
-        Debug.Log($"Score: {this.score}");
-    }
-
-    private void LevelUp()
-    {
-        this.level++;
-
-        float newStepDelay = Mathf.Max(0.1f, this.activePiece.stepDelay * 0.9f);
-        this.activePiece.UpdateStepDelay(newStepDelay);
-
-        if (levelText != null)
-        {
-            levelText.text = $"Level: {this.level}";
-        }
-    }
     //Xử lý chức năng giữ khối
     private void DisplayHoldPiece()
     {
