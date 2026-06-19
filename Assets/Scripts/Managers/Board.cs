@@ -13,8 +13,9 @@ public class Board : MonoBehaviour
     
     public Tilemap nextPieceTilemap;
     private TetrominoData nextTetromino;
-    private List<Tetromino> spawnHistory = new List<Tetromino>();
-    private const int maxConsecutiveCount = 2;
+
+    // 7-Bag Randomizer: đảm bảo mỗi 7 loại tetromino xuất hiện đúng 1 lần
+    private readonly Queue<TetrominoData> _pieceQueue = new Queue<TetrominoData>();
     
     public Tilemap holdPieceTilemap;
     private TetrominoData holdPieceData;
@@ -33,12 +34,8 @@ public class Board : MonoBehaviour
     {
         this.activePiece = GetComponentInChildren<Piece>();
         this.tilemap = GetComponentInChildren<Tilemap>();
-        // Hardcode fallback removed; prefer Inspector assignment but retain old behavior if null
-        if (this.nextPieceTilemap == null)
-        {
-            GameObject nextObj = GameObject.Find("NextPieceTilemap");
-            if (nextObj != null) this.nextPieceTilemap = nextObj.GetComponent<Tilemap>();
-        }
+        // nextPieceTilemap không còn được auto-find:
+        // NextPieceQueueDisplay.cs chịu trách nhiệm hiển thị preview queue
 
         for (int i = 0; i < tetrominoes.Length; i++)
         {
@@ -83,14 +80,14 @@ public class Board : MonoBehaviour
     private void ResetGame()
     {
         ClearAll();
-        this.spawnHistory.Clear();
+        _pieceQueue.Clear();
 
         if (activePiece != null)
         {
             this.activePiece.stepDelay = 1.0f;
         }
 
-        nextTetromino = GetNextTetromino();
+        nextTetromino = DequeueNextTetromino();
         SpawnPiece();
     }
 
@@ -103,23 +100,40 @@ public class Board : MonoBehaviour
         }
     }
 
-    //Xử lý khối
-    private TetrominoData GetNextTetromino()
+    // === 7-Bag Randomizer ===
+
+    /// <summary>
+    /// Lấy khối tiếp theo từ queue. Nếu queue rỗng, tự động nạp thêm 1 bag mới.
+    /// </summary>
+    private TetrominoData DequeueNextTetromino()
     {
-        TetrominoData nextData;
-        do
+        if (_pieceQueue.Count == 0)
         {
-            int random = Random.Range(0, tetrominoes.Length);
-            nextData = tetrominoes[random];
+            RefillBag();
         }
-        while (spawnHistory.Count >= maxConsecutiveCount &&
-               spawnHistory.FindAll(t => t.Equals(nextData.tetromino)).Count >= maxConsecutiveCount);
-        spawnHistory.Add(nextData.tetromino);
-        if (spawnHistory.Count > maxConsecutiveCount)
+        return _pieceQueue.Dequeue();
+    }
+
+    /// <summary>
+    /// Tạo một bag mới gồm đủ 7 loại tetromino, trộn ngẫu nhiên bằng
+    /// thuật toán Fisher-Yates (không thiên vị), rồi đẩy vào _pieceQueue.
+    /// </summary>
+    private void RefillBag()
+    {
+        // Sao chép toàn bộ mảng tetrominoes vào list tạm
+        var bag = new List<TetrominoData>(tetrominoes);
+
+        // Fisher-Yates shuffle: O(n), phân phối đều
+        for (int i = bag.Count - 1; i > 0; i--)
         {
-            spawnHistory.RemoveAt(0);
+            int j = Random.Range(0, i + 1);
+            (bag[i], bag[j]) = (bag[j], bag[i]);
         }
-        return nextData;
+
+        foreach (TetrominoData piece in bag)
+        {
+            _pieceQueue.Enqueue(piece);
+        }
     }
     
     public void SpawnPiece(TetrominoData? specificData = null)
@@ -141,7 +155,7 @@ public class Board : MonoBehaviour
         
         if (specificData == null)
         {
-            nextTetromino = GetNextTetromino();
+            nextTetromino = DequeueNextTetromino();
         }
         DisplayNextPiece(nextTetromino);
         hasUsedHold = false;
@@ -153,12 +167,18 @@ public class Board : MonoBehaviour
     {
         if (this.nextPieceTilemap == null) return;
         this.nextPieceTilemap.ClearAllTiles();
-        Vector3Int startPosition = new Vector3Int(-1, 1, 0);
+        DrawPieceOnTilemap(this.nextPieceTilemap, data, new Vector3Int(-1, 1, 0));
+    }
 
+    /// <summary>
+    /// Vẽ một tetromino lên Tilemap tại vị trí offset cho trước.
+    /// </summary>
+    public static void DrawPieceOnTilemap(Tilemap tilemap, TetrominoData data, Vector3Int offset)
+    {
         foreach (Vector2Int cell in data.cells)
         {
-            Vector3Int tilePosition = new Vector3Int(cell.x * 2, cell.y * 2, 0) + startPosition;
-            this.nextPieceTilemap.SetTile(tilePosition, data.tile);
+            Vector3Int tilePos = new Vector3Int(cell.x * 2, cell.y * 2, 0) + offset;
+            tilemap.SetTile(tilePos, data.tile);
         }
     }
 
@@ -217,7 +237,9 @@ public class Board : MonoBehaviour
             }
         }
         
-        if (linesCleared > 0 && GameManager.Instance != null)
+        // Luôn gọi AddScore để GameManager cập nhật trạng thái Combo
+        // (kể cả khi linesCleared == 0 để reset combo)
+        if (GameManager.Instance != null)
         {
             GameManager.Instance.AddScore(linesCleared);
         }
@@ -285,7 +307,7 @@ public class Board : MonoBehaviour
         if (holdPieceData.cells == null || holdPieceData.cells.Length == 0)
         {
             holdPieceData = this.activePiece.data;
-            nextTetromino = GetNextTetromino();
+            nextTetromino = DequeueNextTetromino();
             SpawnPiece();
         }
         else

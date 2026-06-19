@@ -11,8 +11,15 @@ public class GameManager : MonoBehaviour
     public int LinesCleared { get; private set; }
     public bool IsGameOver { get; private set; }
     public bool IsPaused { get; private set; }
+    public int ComboCount { get; private set; }
 
     private const int LinesPerLevel = 10;
+
+    // Bảng điểm chuẩn Tetris Guideline (điểm gốc, nhân với Level+1)
+    private static readonly int[] BasePoints = { 0, 100, 300, 500, 800 };
+
+    // Theo dõi trạng thái xóa để tính Back-to-Back
+    private bool _lastClearWasTetris;
     
     public List<int> ScoreHistory { get; private set; } = new List<int> { 5000, 4000, 3000, 2000, 1000 };
 
@@ -23,6 +30,12 @@ public class GameManager : MonoBehaviour
     public event Action<int> OnLevelChanged;
     public event Action<List<int>> OnScoreHistoryUpdated;
     public event Action OnShowStartMenu;
+
+    /// <summary>Kích hoạt khi combo thay đổi. Tham số: số combo hiện tại (0 = reset).</summary>
+    public event Action<int> OnComboUpdated;
+
+    /// <summary>Kích hoạt khi xảy ra Back-to-Back Tetris.</summary>
+    public event Action OnBackToBack;
 
     private void Awake()
     {
@@ -78,6 +91,8 @@ public class GameManager : MonoBehaviour
         Level = 1;
         LinesCleared = 0;
         IsPaused = false;
+        ComboCount = 0;
+        _lastClearWasTetris = false;
         Time.timeScale = 1;
 
         OnScoreChanged?.Invoke(Score);
@@ -110,15 +125,40 @@ public class GameManager : MonoBehaviour
 
     public void AddScore(int lines)
     {
-        int point = 0;
-        switch (lines)
+        if (lines <= 0)
         {
-            case 1: point = 50 * (Level + 1); break;
-            case 2: point = 100 * (Level + 1); break;
-            case 3: point = 300 * (Level + 1); break;
-            case 4: point = 1200 * (Level + 1); break;
+            // Không xóa được dòng nào: reset combo
+            ComboCount = 0;
+            _lastClearWasTetris = false;
+            OnComboUpdated?.Invoke(ComboCount);
+            return;
         }
-        Score += point;
+
+        // --- Tính Combo ---
+        ComboCount++;
+        OnComboUpdated?.Invoke(ComboCount);
+
+        // Combo multiplier: x1.0 lần đầu, +0.5 mỗi combo tiếp theo
+        float comboMultiplier = 1f + Mathf.Max(0, ComboCount - 1) * 0.5f;
+
+        // --- Tính Back-to-Back (Tetris liên tiếp) ---
+        bool isTetris = lines == 4;
+        bool isBackToBack = isTetris && _lastClearWasTetris;
+        float b2bMultiplier = isBackToBack ? 1.5f : 1f;
+
+        if (isBackToBack)
+        {
+            OnBackToBack?.Invoke();
+        }
+
+        _lastClearWasTetris = isTetris;
+
+        // --- Tính điểm theo Tetris Guideline ---
+        int basePoint = lines < BasePoints.Length ? BasePoints[lines] : BasePoints[BasePoints.Length - 1];
+        int rawPoint = basePoint * (Level + 1);
+        int finalPoint = Mathf.RoundToInt(rawPoint * comboMultiplier * b2bMultiplier);
+
+        Score += finalPoint;
         OnScoreChanged?.Invoke(Score);
 
         LinesCleared += lines;

@@ -14,6 +14,12 @@ public class UIManager : MonoBehaviour
     public TMP_Text historyText;
     public TMP_Text gameOverHistoryText;
 
+    [Header("Combo & B2B Display")]
+    [Tooltip("Hiển thị số combo hiện tại. Để trống nếu không có UI.")]
+    public TMP_Text comboText;
+    [Tooltip("Hiển thị nhãn B2B khi Tetris liên tiếp. Để trống nếu không có UI.")]
+    public TMP_Text backToBackText;
+
     public Button startButton;
     public Button resetButton;
     public Button backToHomeButton;
@@ -32,6 +38,8 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.OnLevelChanged += HandleLevelChanged;
             GameManager.Instance.OnScoreHistoryUpdated += HandleScoreHistoryUpdated;
             GameManager.Instance.OnShowStartMenu += HandleShowStartMenu;
+            GameManager.Instance.OnComboUpdated += HandleComboUpdated;
+            GameManager.Instance.OnBackToBack += HandleBackToBack;
 
             startButton.onClick.AddListener(GameManager.Instance.StartGame);
             resetButton.onClick.AddListener(GameManager.Instance.StartGame);
@@ -54,6 +62,8 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.OnLevelChanged -= HandleLevelChanged;
             GameManager.Instance.OnScoreHistoryUpdated -= HandleScoreHistoryUpdated;
             GameManager.Instance.OnShowStartMenu -= HandleShowStartMenu;
+            GameManager.Instance.OnComboUpdated -= HandleComboUpdated;
+            GameManager.Instance.OnBackToBack -= HandleBackToBack;
         }
     }
 
@@ -86,6 +96,40 @@ public class UIManager : MonoBehaviour
         if (scoreText != null)
         {
             scoreText.text = $"Score: {newScore}";
+        }
+    }
+
+    private void HandleComboUpdated(int comboCount)
+    {
+        if (comboText == null) return;
+
+        if (comboCount >= 2)
+        {
+            comboText.text = $"COMBO x{comboCount}";
+            comboText.gameObject.SetActive(true);
+        }
+        else
+        {
+            comboText.gameObject.SetActive(false);
+        }
+    }
+
+    private void HandleBackToBack()
+    {
+        if (backToBackText == null) return;
+
+        backToBackText.text = "BACK-TO-BACK!";
+        backToBackText.gameObject.SetActive(true);
+        // Tự ẩn sau 2 giây
+        CancelInvoke(nameof(HideBackToBackText));
+        Invoke(nameof(HideBackToBackText), 2f);
+    }
+
+    private void HideBackToBackText()
+    {
+        if (backToBackText != null)
+        {
+            backToBackText.gameObject.SetActive(false);
         }
     }
 
