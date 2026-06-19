@@ -15,6 +15,7 @@ public class InputManager : MonoBehaviour
     public InputActionReference pauseAction;
 
     public event Action<Vector2> OnMove;
+    public event Action<Vector2> OnMoveCanceled;
     public event Action OnRotate;
     public event Action OnHardDrop;
     public event Action OnHold;
@@ -39,6 +40,7 @@ public class InputManager : MonoBehaviour
         if (moveAction != null)
         {
             moveAction.action.performed += MovePerformed;
+            moveAction.action.canceled += MoveCanceled;
             moveAction.action.Enable();
         }
         if (rotateAction != null)
@@ -74,6 +76,7 @@ public class InputManager : MonoBehaviour
         if (moveAction != null)
         {
             moveAction.action.performed -= MovePerformed;
+            moveAction.action.canceled -= MoveCanceled;
             moveAction.action.Disable();
         }
         if (rotateAction != null)
@@ -107,8 +110,13 @@ public class InputManager : MonoBehaviour
     private void MovePerformed(InputAction.CallbackContext context)
     {
         Vector2 value = context.ReadValue<Vector2>();
-        Debug.Log("InputManager: MovePerformed -> " + value);
         OnMove?.Invoke(value);
+    }
+
+    private void MoveCanceled(InputAction.CallbackContext context)
+    {
+        Vector2 value = context.ReadValue<Vector2>();
+        OnMoveCanceled?.Invoke(value);
     }
 
     private void RotatePerformed(InputAction.CallbackContext context)
