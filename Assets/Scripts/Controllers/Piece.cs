@@ -16,6 +16,9 @@ public class Piece : MonoBehaviour
     public float stepDelay = 1.0f;
     public float lockDelay = 0.5f;
 
+    /// <summary>True khi đang chạy LockRoutine — ngăn Update() can thiệp trong lúc animation.</summary>
+    private bool _isLocking = false;
+
     private float stepTime;
     private float lockTime;
 
@@ -28,6 +31,7 @@ public class Piece : MonoBehaviour
         this.rotationIndex = 0;
         this.stepTime = Time.time + stepDelay;
         this.lockTime = 0f;
+        _isLocking = false; // Reset khi piece mới được khởi tạo
 
         if(this.cells == null)
         {
@@ -40,8 +44,7 @@ public class Piece : MonoBehaviour
 
     private void Update()
     {
-        if (this.board == null)
-            return;
+        if (this.board == null || _isLocking) return;
 
         if (GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused))
             return;
@@ -128,8 +131,19 @@ public class Piece : MonoBehaviour
     //Khóa khôi
     private void Lock()
     {
+        if (_isLocking) return;
+        _isLocking = true;
+        StartCoroutine(LockRoutine());
+    }
+
+    /// <summary>
+    /// Đợi animation xóa dòng xong mới spawn piece mới.
+    /// _isLocking sẽ được reset bởi Initialized() khi SpawnPiece gọi lại.
+    /// </summary>
+    private IEnumerator LockRoutine()
+    {
         this.board.Set(this);
-        this.board.ClearLines();
+        yield return StartCoroutine(this.board.ClearLinesAnimated());
         this.board.SpawnPiece();
     }
     //Thả khối

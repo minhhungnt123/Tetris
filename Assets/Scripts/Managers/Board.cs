@@ -21,6 +21,15 @@ public class Board : MonoBehaviour
     private TetrominoData holdPieceData;
     private bool hasUsedHold = false;
 
+    [Header("Line Clear Animation")]
+    [Tooltip("Tổng thời gian flash khi xóa dòng (giây).")]
+    [SerializeField] private float _lineClearFlashDuration = 0.3f;
+    [Tooltip("Số lần nháy.")]
+    [SerializeField] private int _lineClearFlashCount = 3;
+
+    /// <summary>True khi đang chạy hoạt ảnh xóa dòng — dùng để chặn input và Update của Piece.</summary>
+    public bool IsAnimatingLineClear { get; private set; }
+
     public RectInt Bounds
     {
         get
@@ -218,31 +227,78 @@ public class Board : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Xóa dòng ngật hóa (không có animation). Dùng nội bộ hoặc khi không cần đợi.
+    /// </summary>
     public void ClearLines()
     {
         RectInt bounds = this.Bounds;
         int row = bounds.yMin;
         int linesCleared = 0;
-
         while (row < bounds.yMax)
         {
-            if (IsLineFull(row))
-            {
-                LineClear(row);
-                linesCleared++;
-            }
-            else
-            {
-                row++;
-            }
+            if (IsLineFull(row)) { LineClear(row); linesCleared++; }
+            else row++;
         }
-        
-        // Luôn gọi AddScore để GameManager cập nhật trạng thái Combo
-        // (kể cả khi linesCleared == 0 để reset combo)
-        if (GameManager.Instance != null)
+        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared);
+    }
+
+    /// <summary>
+    /// Xóa dòng kèm hiệu ứng flash. Piece.LockRoutine() phải yield Coroutine này.
+    /// Trong thời gian animation, IsAnimatingLineClear = true — Piece.Update() và
+    /// PlayerInputController sẽ tự block.
+    /// </summary>
+    public IEnumerator ClearLinesAnimated()
+    {
+        // Bước 1: Thu thập các hàng đầy
+        RectInt bounds = this.Bounds;
+        var fullRows = new List<int>();
+        for (int row = bounds.yMin; row < bounds.yMax; row++)
         {
-            GameManager.Instance.AddScore(linesCleared);
+            if (IsLineFull(row)) fullRows.Add(row);
         }
+
+        if (fullRows.Count == 0)
+        {
+            // Không có dòng nào đầy — vẫn gọi AddScore(0) để reset Combo
+            if (GameManager.Instance != null) GameManager.Instance.AddScore(0);
+            yield break;
+        }
+
+        // Bước 2: Lưu tile gốc của các hàng đầy
+        IsAnimatingLineClear = true;
+        var savedTiles = new Dictionary<Vector3Int, TileBase>();
+        foreach (int row in fullRows)
+        {
+            for (int col = bounds.xMin; col < bounds.xMax; col++)
+            {
+                var pos = new Vector3Int(col, row, 0);
+                savedTiles[pos] = this.tilemap.GetTile(pos);
+            }
+        }
+
+        // Bước 3: Flash animation — bật/tắt tile
+        float interval = _lineClearFlashDuration / (_lineClearFlashCount * 2f);
+        for (int blink = 0; blink < _lineClearFlashCount; blink++)
+        {
+            foreach (var pos in savedTiles.Keys) this.tilemap.SetTile(pos, null);
+            yield return new WaitForSeconds(interval);
+            foreach (var kvp in savedTiles)  this.tilemap.SetTile(kvp.Key, kvp.Value);
+            yield return new WaitForSeconds(interval);
+        }
+
+        // Bước 4: Thực sự xóa và dịch các hàng xuống (thuật toán gốc)
+        // Tile đang ở trạng thái “flash on” từ vòng cuối — IsLineFull() vẫn đúng
+        int rowIdx = bounds.yMin;
+        int linesCleared = 0;
+        while (rowIdx < bounds.yMax)
+        {
+            if (IsLineFull(rowIdx)) { LineClear(rowIdx); linesCleared++; }
+            else rowIdx++;
+        }
+
+        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared);
+        IsAnimatingLineClear = false;
     }
     private bool IsLineFull(int row)
     {
