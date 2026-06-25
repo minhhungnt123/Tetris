@@ -25,6 +25,12 @@ public class Ghost : MonoBehaviour
         {
             this.trackingPiece.OnPieceUpdated += HandlePieceUpdated;
         }
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnGameOver += HandleGameOver;
+            GameManager.Instance.OnShowStartMenu += HandleShowStartMenu;
+        }
     }
 
     private void OnDestroy()
@@ -32,6 +38,12 @@ public class Ghost : MonoBehaviour
         if (this.trackingPiece != null)
         {
             this.trackingPiece.OnPieceUpdated -= HandlePieceUpdated;
+        }
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnGameOver -= HandleGameOver;
+            GameManager.Instance.OnShowStartMenu -= HandleShowStartMenu;
         }
     }
 
@@ -41,6 +53,23 @@ public class Ghost : MonoBehaviour
         Copy();
         Drop();
         Set();
+    }
+
+    // Game Over hoặc quay về màn Home: Piece không còn bắn OnPieceUpdated nữa
+    // nên ghost của khối cuối cùng sẽ bị kẹt lại trên board nếu không xóa thủ công.
+    private void HandleGameOver()
+    {
+        ClearGhostTilemap();
+    }
+
+    private void HandleShowStartMenu()
+    {
+        ClearGhostTilemap();
+    }
+
+    private void ClearGhostTilemap()
+    {
+        if (this.tilemap != null) this.tilemap.ClearAllTiles();
     }
 
     private void Clear()
