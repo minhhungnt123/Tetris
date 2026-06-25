@@ -37,6 +37,12 @@ public class GameManager : MonoBehaviour
     /// <summary>Kích hoạt khi xảy ra Back-to-Back Tetris.</summary>
     public event Action OnBackToBack;
 
+    /// <summary>
+    /// Kích hoạt sau khi xóa dòng thành công.
+    /// Tham số: (int points) điểm vừa nhận được, (List&lt;int&gt; clearedRows) chỉ số các hàng đã xóa.
+    /// </summary>
+    public event Action<int, List<int>> OnLineClearScore;
+
     private void Awake()
     {
         if (Instance == null)
@@ -123,7 +129,12 @@ public class GameManager : MonoBehaviour
         OnPauseToggled?.Invoke(IsPaused);
     }
 
-    public void AddScore(int lines)
+    /// <summary>
+    /// Cập nhật điểm khi xóa dòng thành công.
+    /// </summary>
+    /// <param name="lines">Số dòng đã xóa.</param>
+    /// <param name="clearedRows">Danh sách chỉ số hàng đã xóa (dùng để spawn floating text).</param>
+    public void AddScore(int lines, List<int> clearedRows = null)
     {
         if (lines <= 0)
         {
@@ -160,6 +171,9 @@ public class GameManager : MonoBehaviour
 
         Score += finalPoint;
         OnScoreChanged?.Invoke(Score);
+
+        // Phát sự kiện floating score text
+        OnLineClearScore?.Invoke(finalPoint, clearedRows);
 
         LinesCleared += lines;
         if (LinesCleared >= Level * LinesPerLevel)
