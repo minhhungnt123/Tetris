@@ -235,12 +235,13 @@ public class Board : MonoBehaviour
         RectInt bounds = this.Bounds;
         int row = bounds.yMin;
         int linesCleared = 0;
+        var clearedRows = new List<int>();
         while (row < bounds.yMax)
         {
-            if (IsLineFull(row)) { LineClear(row); linesCleared++; }
+            if (IsLineFull(row)) { clearedRows.Add(row); LineClear(row); linesCleared++; }
             else row++;
         }
-        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared);
+        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared, clearedRows);
     }
 
     /// <summary>
@@ -297,7 +298,7 @@ public class Board : MonoBehaviour
             else rowIdx++;
         }
 
-        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared);
+        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared, fullRows);
         IsAnimatingLineClear = false;
     }
     private bool IsLineFull(int row)
