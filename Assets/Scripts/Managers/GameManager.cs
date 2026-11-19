@@ -12,6 +12,7 @@ public class GameManager : MonoBehaviour
     public bool IsGameOver { get; private set; }
     public bool IsPaused { get; private set; }
     public int ComboCount { get; private set; }
+    public GameMode CurrentGameMode { get; private set; } = GameMode.Marathon;
 
     private const int LinesPerLevel = 10;
 
@@ -92,6 +93,12 @@ public class GameManager : MonoBehaviour
 
     public void StartGame()
     {
+        StartGame(GameMode.Marathon);
+    }
+
+    public void StartGame(GameMode mode)
+    {
+        CurrentGameMode = mode;
         IsGameOver = false;
         Score = 0;
         Level = 1;

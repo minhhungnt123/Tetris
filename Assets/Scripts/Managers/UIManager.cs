@@ -9,6 +9,11 @@ public class UIManager : MonoBehaviour
     public GameObject gameOverPanel;
     public GameObject pausePanel;
 
+    [Header("Mode Select & Placeholder Screens")]
+    public GameObject modeSelectPanel;
+    public GameObject versusAIPanel;
+    public GameObject lobbyPanel;
+
     public TMP_Text scoreText;
     public TMP_Text levelText;
     public TMP_Text historyText;
@@ -27,6 +32,20 @@ public class UIManager : MonoBehaviour
     public Button quitButton;
     public Button restartButton;
 
+    [Header("Mode Select Buttons")]
+    public Button marathonButton;
+    public Button sprintButton;
+    public Button versusAIButton;
+    public Button onlineMultiplayerButton;
+    public Button modeSelectBackButton;
+
+    [Header("Versus AI Placeholder Buttons")]
+    public Button versusAIBackButton;
+
+    [Header("Lobby Placeholder Buttons")]
+    [Tooltip("Nút Back trong LobbyPanel. Nút Create Room/Join Room do OnlineLobbyStub tự quản lý.")]
+    public Button lobbyBackButton;
+
     private void Start()
     {
         if (GameManager.Instance != null)
@@ -41,13 +60,21 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.OnComboUpdated += HandleComboUpdated;
             GameManager.Instance.OnBackToBack += HandleBackToBack;
 
-            startButton.onClick.AddListener(GameManager.Instance.StartGame);
+            startButton.onClick.AddListener(HandleStartButtonClicked);
             resetButton.onClick.AddListener(GameManager.Instance.StartGame);
             restartButton.onClick.AddListener(GameManager.Instance.StartGame);
             resumeButton.onClick.AddListener(GameManager.Instance.ResumeGame);
-            
+
             backToHomeButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
             quitButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
+
+            if (marathonButton != null) marathonButton.onClick.AddListener(HandleMarathonButtonClicked);
+            if (sprintButton != null) sprintButton.interactable = false;
+            if (versusAIButton != null) versusAIButton.onClick.AddListener(HandleVersusAIButtonClicked);
+            if (onlineMultiplayerButton != null) onlineMultiplayerButton.onClick.AddListener(HandleOnlineMultiplayerButtonClicked);
+            if (modeSelectBackButton != null) modeSelectBackButton.onClick.AddListener(HandleBackToStartClicked);
+            if (versusAIBackButton != null) versusAIBackButton.onClick.AddListener(HandleBackToModeSelectClicked);
+            if (lobbyBackButton != null) lobbyBackButton.onClick.AddListener(HandleBackToModeSelectClicked);
         }
     }
 
@@ -69,16 +96,56 @@ public class UIManager : MonoBehaviour
 
     private void HandleShowStartMenu()
     {
-        if (startPanel != null) startPanel.SetActive(true);
-        if (gameOverPanel != null) gameOverPanel.SetActive(false);
-        if (pausePanel != null) pausePanel.SetActive(false);
+        ShowOnlyPanel(startPanel);
     }
 
     private void HandleGameStarted()
     {
-        if (startPanel != null) startPanel.SetActive(false);
-        if (gameOverPanel != null) gameOverPanel.SetActive(false);
-        if (pausePanel != null) pausePanel.SetActive(false);
+        ShowOnlyPanel(null);
+    }
+
+    /// <summary>
+    /// Ẩn tất cả các panel màn hình (start/mode select/versus AI/lobby/game over/pause)
+    /// rồi chỉ hiện panel được chỉ định. Truyền null để ẩn hết (vào gameplay).
+    /// </summary>
+    private void ShowOnlyPanel(GameObject panelToShow)
+    {
+        if (startPanel != null) startPanel.SetActive(startPanel == panelToShow);
+        if (modeSelectPanel != null) modeSelectPanel.SetActive(modeSelectPanel == panelToShow);
+        if (versusAIPanel != null) versusAIPanel.SetActive(versusAIPanel == panelToShow);
+        if (lobbyPanel != null) lobbyPanel.SetActive(lobbyPanel == panelToShow);
+        if (gameOverPanel != null) gameOverPanel.SetActive(gameOverPanel == panelToShow);
+        if (pausePanel != null) pausePanel.SetActive(pausePanel == panelToShow);
+    }
+
+    private void HandleStartButtonClicked()
+    {
+        ShowOnlyPanel(modeSelectPanel);
+    }
+
+    private void HandleMarathonButtonClicked()
+    {
+        GameManager.Instance.StartGame(GameMode.Marathon);
+    }
+
+    private void HandleVersusAIButtonClicked()
+    {
+        ShowOnlyPanel(versusAIPanel);
+    }
+
+    private void HandleOnlineMultiplayerButtonClicked()
+    {
+        ShowOnlyPanel(lobbyPanel);
+    }
+
+    private void HandleBackToStartClicked()
+    {
+        ShowOnlyPanel(startPanel);
+    }
+
+    private void HandleBackToModeSelectClicked()
+    {
+        ShowOnlyPanel(modeSelectPanel);
     }
 
     private void HandleGameOver()
