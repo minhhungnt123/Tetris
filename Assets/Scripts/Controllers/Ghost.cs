@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.Tilemaps;
 
 /// <summary>
@@ -6,11 +7,11 @@ using UnityEngine.Tilemaps;
 /// </summary>
 public class Ghost : MonoBehaviour
 {
-    [SerializeField] private Tile _tile;
-    [SerializeField] private Board _board;
-    [SerializeField] private Piece _trackingPiece;
+    [SerializeField, FormerlySerializedAs("tile")] private Tile _tile;
+    [SerializeField, FormerlySerializedAs("board")] private Board _board;
+    [SerializeField, FormerlySerializedAs("trackingPiece")] private Piece _trackingPiece;
+    [SerializeField] private Tilemap _tilemap;
 
-    private Tilemap _tilemap;
     private Vector3Int[] _cells;
     private Vector3Int _position;
 
@@ -37,12 +38,13 @@ public class Ghost : MonoBehaviour
 
     private void Awake()
     {
-        _tilemap = GetComponentInChildren<Tilemap>();
-        _cells = new Vector3Int[4];
+        AutoWireDependencies();
     }
 
     private void Start()
     {
+        AutoWireDependencies();
+
         if (_trackingPiece != null)
         {
             _trackingPiece.OnPieceUpdated += HandlePieceUpdated;
@@ -52,6 +54,11 @@ public class Ghost : MonoBehaviour
         {
             GameManager.Instance.OnGameOver += HandleGameOver;
             GameManager.Instance.OnShowStartMenu += HandleShowStartMenu;
+        }
+
+        if (_trackingPiece != null && _trackingPiece.Cells != null && _trackingPiece.Cells.Length > 0)
+        {
+            HandlePieceUpdated();
         }
     }
 
@@ -66,6 +73,31 @@ public class Ghost : MonoBehaviour
         {
             GameManager.Instance.OnGameOver -= HandleGameOver;
             GameManager.Instance.OnShowStartMenu -= HandleShowStartMenu;
+        }
+    }
+
+    private void AutoWireDependencies()
+    {
+        if (_board == null)
+        {
+            _board = FindFirstObjectByType<Board>();
+        }
+
+        if (_trackingPiece == null && _board != null)
+        {
+            _trackingPiece = _board.GetComponent<Piece>();
+        }
+
+        if (_tilemap == null)
+        {
+            _tilemap = GetComponentInChildren<Tilemap>();
+        }
+
+        if (_tile == null)
+        {
+#if UNITY_EDITOR
+            _tile = UnityEditor.AssetDatabase.LoadAssetAtPath<Tile>("Assets/Tiles/Ghost.asset");
+#endif
         }
     }
 
@@ -94,18 +126,20 @@ public class Ghost : MonoBehaviour
 
     private void Clear()
     {
-        if (_tilemap == null || _cells == null) return;
-
-        for (int i = 0; i < _cells.Length; i++)
+        if (_tilemap != null)
         {
-            Vector3Int tilePosition = _cells[i] + _position;
-            _tilemap.SetTile(tilePosition, null);
+            _tilemap.ClearAllTiles();
         }
     }
 
     private void Copy()
     {
-        if (_trackingPiece == null || _trackingPiece.Cells == null) return;
+        if (_trackingPiece == null || _trackingPiece.Cells == null || _trackingPiece.Cells.Length == 0) return;
+
+        if (_cells == null || _cells.Length != _trackingPiece.Cells.Length)
+        {
+            _cells = new Vector3Int[_trackingPiece.Cells.Length];
+        }
 
         for (int i = 0; i < _cells.Length; i++)
         {
@@ -115,7 +149,7 @@ public class Ghost : MonoBehaviour
 
     private void Drop()
     {
-        if (_trackingPiece == null || _board == null) return;
+        if (_trackingPiece == null || _board == null || _cells == null || _cells.Length == 0) return;
 
         Vector3Int currentPos = _trackingPiece.Position;
         int current = currentPos.y;
@@ -141,7 +175,7 @@ public class Ghost : MonoBehaviour
 
     private void Set()
     {
-        if (_tilemap == null || _cells == null) return;
+        if (_tilemap == null || _cells == null || _cells.Length == 0 || _tile == null) return;
 
         for (int i = 0; i < _cells.Length; i++)
         {

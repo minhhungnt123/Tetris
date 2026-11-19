@@ -177,9 +177,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 48658694625ab4245b1af94902a695a1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _tile: {fileID: 0}
-  _board: {fileID: 0}
-  _trackingPiece: {fileID: 0}
+  _tile: {fileID: 11400000, guid: f04c0b9405f6ac34c9db25ac4971a6e7, type: 2}
+  _board: {fileID: 548754308}
+  _trackingPiece: {fileID: 548754309}
+  _tilemap: {fileID: 405593201}
 --- !u!1 &65898336
 GameObject:
   m_ObjectHideFlags: 0
