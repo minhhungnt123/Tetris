@@ -1,54 +1,130 @@
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine.Tilemaps;
 using UnityEngine;
+using UnityEngine.Tilemaps;
 
+/// <summary>
+/// Quản lý ma trận ô cờ (Grid/Tilemap), kiểm tra va chạm, xóa dòng và điều phối vòng đời khối gạch (SRP).
+/// </summary>
 public class Board : MonoBehaviour
 {
+    [Header("Configuration")]
+    [SerializeField] private TetrisGameSettingsSO _gameSettings;
+
+    [Header("Tetromino Data")]
     public TetrominoData[] tetrominoes;
-    public Tilemap tilemap {  get; private set; }
-    public Piece activePiece { get; private set; }
-    public Vector3Int spawnPosition;
-    public Vector2Int boardSize = new Vector2Int(10, 20);
-    
-    public Tilemap nextPieceTilemap;
-    private TetrominoData nextTetromino;
 
-    // 7-Bag Randomizer: đảm bảo mỗi 7 loại tetromino xuất hiện đúng 1 lần
-    private readonly Queue<TetrominoData> _pieceQueue = new Queue<TetrominoData>();
-    
-    public Tilemap holdPieceTilemap;
-    private TetrominoData holdPieceData;
-    private bool hasUsedHold = false;
+    [Header("Tilemaps & Display")]
+    [SerializeField] private Tilemap _tilemap;
+    [SerializeField] private Tilemap _nextPieceTilemap;
+    [SerializeField] private Tilemap _holdPieceTilemap;
 
-    [Header("Line Clear Animation")]
-    [Tooltip("Tổng thời gian flash khi xóa dòng (giây).")]
+    [Header("Line Clear Animation Settings")]
     [SerializeField] private float _lineClearFlashDuration = 0.3f;
-    [Tooltip("Số lần nháy.")]
     [SerializeField] private int _lineClearFlashCount = 3;
 
-    /// <summary>True khi đang chạy hoạt ảnh xóa dòng — dùng để chặn input và Update của Piece.</summary>
+    private Piece _activePiece;
+    private HoldPieceManager _holdPieceManager;
+    private IPieceRandomizer _pieceRandomizer;
+    private TetrominoData _nextTetromino;
+    private Coroutine _lockCoroutine;
+
+    // PascalCase Properties (Chuẩn C#)
+    public Tilemap Tilemap => _tilemap;
+    public Piece ActivePiece => _activePiece;
     public bool IsAnimatingLineClear { get; private set; }
+    public Vector2Int BoardSize => _gameSettings != null ? _gameSettings.BoardSize : new Vector2Int(10, 20);
+    public Vector3Int SpawnPosition => _gameSettings != null ? _gameSettings.SpawnPosition : new Vector3Int(-1, 8, 0);
 
     public RectInt Bounds
     {
         get
         {
-            Vector2Int position = new Vector2Int(-this.boardSize.x / 2, -this.boardSize.y / 2);
-            return new RectInt(position, this.boardSize);
+            Vector2Int size = BoardSize;
+            Vector2Int pos = new Vector2Int(-size.x / 2, -size.y / 2);
+            return new RectInt(pos, size);
         }
+    }
+
+    // Backward-compatibility aliases
+    public Tilemap tilemap => _tilemap;
+    public Piece activePiece => _activePiece;
+    public Vector2Int boardSize
+    {
+        get => BoardSize;
+        set { }
+    }
+    public Vector3Int spawnPosition
+    {
+        get => SpawnPosition;
+        set { }
+    }
+    public Tilemap nextPieceTilemap
+    {
+        get => _nextPieceTilemap;
+        set => _nextPieceTilemap = value;
+    }
+    public Tilemap holdPieceTilemap
+    {
+        get => _holdPieceTilemap;
+        set => _holdPieceTilemap = value;
     }
 
     private void Awake()
     {
-        this.activePiece = GetComponentInChildren<Piece>();
-        this.tilemap = GetComponentInChildren<Tilemap>();
-        // nextPieceTilemap không còn được auto-find:
-        // NextPieceQueueDisplay.cs chịu trách nhiệm hiển thị preview queue
-
-        for (int i = 0; i < tetrominoes.Length; i++)
+        _activePiece = GetComponentInChildren<Piece>();
+        if (_tilemap == null)
         {
-            this.tetrominoes[i].Initialize();
+            _tilemap = GetComponentInChildren<Tilemap>();
+        }
+
+        // Tách biệt Hold Manager
+        _holdPieceManager = GetComponent<HoldPieceManager>();
+        if (_holdPieceManager == null)
+        {
+            _holdPieceManager = gameObject.AddComponent<HoldPieceManager>();
+        }
+
+        if (_nextPieceTilemap == null)
+        {
+            var nextGrid = GameObject.Find("NextSlotGrid");
+            if (nextGrid != null) _nextPieceTilemap = nextGrid.GetComponentInChildren<Tilemap>();
+            if (_nextPieceTilemap == null)
+            {
+                var nextObj = GameObject.Find("NextSlotTilemap");
+                if (nextObj != null) _nextPieceTilemap = nextObj.GetComponent<Tilemap>();
+            }
+        }
+
+        if (_holdPieceTilemap == null)
+        {
+            var holdGrid = GameObject.Find("HoldSlotGrid");
+            if (holdGrid != null) _holdPieceTilemap = holdGrid.GetComponentInChildren<Tilemap>();
+            if (_holdPieceTilemap == null)
+            {
+                var holdObj = GameObject.Find("HoldPieceTilemap");
+                if (holdObj != null) _holdPieceTilemap = holdObj.GetComponent<Tilemap>();
+            }
+        }
+
+        _holdPieceManager.Initialize(_holdPieceTilemap);
+
+        // Khởi tạo thuật toán 7-Bag độc lập
+        _pieceRandomizer = new SevenBagRandomizer();
+
+        if (tetrominoes != null)
+        {
+            for (int i = 0; i < tetrominoes.Length; i++)
+            {
+                tetrominoes[i].Initialize();
+            }
+            _pieceRandomizer.Initialize(tetrominoes);
+        }
+
+        if (_gameSettings != null)
+        {
+            _lineClearFlashDuration = _gameSettings.LineClearFlashDuration;
+            _lineClearFlashCount = _gameSettings.LineClearFlashCount;
         }
     }
 
@@ -61,6 +137,11 @@ public class Board : MonoBehaviour
             GameManager.Instance.OnLevelChanged += HandleLevelChanged;
             GameManager.Instance.OnShowStartMenu += ClearAll;
         }
+
+        if (_activePiece != null)
+        {
+            _activePiece.OnPieceLocked += HandlePieceLocked;
+        }
     }
 
     private void OnDestroy()
@@ -72,13 +153,38 @@ public class Board : MonoBehaviour
             GameManager.Instance.OnLevelChanged -= HandleLevelChanged;
             GameManager.Instance.OnShowStartMenu -= ClearAll;
         }
+
+        if (_activePiece != null)
+        {
+            _activePiece.OnPieceLocked -= HandlePieceLocked;
+        }
     }
 
-    private void ClearAll()
+    public void InitializeSettings(TetrisGameSettingsSO settings)
     {
-        if (this.tilemap != null) this.tilemap.ClearAllTiles();
-        if (this.nextPieceTilemap != null) this.nextPieceTilemap.ClearAllTiles();
-        if (this.holdPieceTilemap != null) this.holdPieceTilemap.ClearAllTiles();
+        _gameSettings = settings;
+        if (settings != null)
+        {
+            _lineClearFlashDuration = settings.LineClearFlashDuration;
+            _lineClearFlashCount = settings.LineClearFlashCount;
+        }
+    }
+
+    private void ResetGame()
+    {
+        ClearAll();
+
+        if (_activePiece != null)
+        {
+            _activePiece.StepDelay = _gameSettings != null ? _gameSettings.BaseStepDelay : 1.0f;
+            _activePiece.LockDelay = _gameSettings != null ? _gameSettings.LockDelay : 0.5f;
+        }
+
+        _pieceRandomizer.Reset();
+        if (_holdPieceManager != null) _holdPieceManager.Clear();
+
+        _nextTetromino = _pieceRandomizer.GetNextPiece();
+        SpawnPiece();
     }
 
     private void HandleGameOver()
@@ -86,140 +192,132 @@ public class Board : MonoBehaviour
         ClearAll();
     }
 
-    private void ResetGame()
+    private void ClearAll()
     {
-        ClearAll();
-        _pieceQueue.Clear();
-
-        if (activePiece != null)
-        {
-            this.activePiece.stepDelay = 1.0f;
-        }
-
-        nextTetromino = DequeueNextTetromino();
-        SpawnPiece();
+        if (_tilemap != null) _tilemap.ClearAllTiles();
+        if (_nextPieceTilemap != null) _nextPieceTilemap.ClearAllTiles();
+        if (_holdPieceManager != null) _holdPieceManager.Clear();
     }
 
     private void HandleLevelChanged(int level)
     {
-        if (this.activePiece != null)
+        if (_activePiece != null)
         {
-            float newStepDelay = Mathf.Max(0.1f, 1.0f * Mathf.Pow(0.9f, level - 1));
-            this.activePiece.UpdateStepDelay(newStepDelay);
+            float newDelay = _gameSettings != null 
+                ? _gameSettings.GetStepDelayForLevel(level) 
+                : Mathf.Max(0.1f, 1.0f * Mathf.Pow(0.9f, level - 1));
+
+            _activePiece.UpdateStepDelay(newDelay);
         }
     }
 
-    // === 7-Bag Randomizer ===
-
-    /// <summary>
-    /// Lấy khối tiếp theo từ queue. Nếu queue rỗng, tự động nạp thêm 1 bag mới.
-    /// </summary>
-    private TetrominoData DequeueNextTetromino()
-    {
-        if (_pieceQueue.Count == 0)
-        {
-            RefillBag();
-        }
-        return _pieceQueue.Dequeue();
-    }
-
-    /// <summary>
-    /// Tạo một bag mới gồm đủ 7 loại tetromino, trộn ngẫu nhiên bằng
-    /// thuật toán Fisher-Yates (không thiên vị), rồi đẩy vào _pieceQueue.
-    /// </summary>
-    private void RefillBag()
-    {
-        // Sao chép toàn bộ mảng tetrominoes vào list tạm
-        var bag = new List<TetrominoData>(tetrominoes);
-
-        // Fisher-Yates shuffle: O(n), phân phối đều
-        for (int i = bag.Count - 1; i > 0; i--)
-        {
-            int j = Random.Range(0, i + 1);
-            (bag[i], bag[j]) = (bag[j], bag[i]);
-        }
-
-        foreach (TetrominoData piece in bag)
-        {
-            _pieceQueue.Enqueue(piece);
-        }
-    }
-    
     public void SpawnPiece(TetrominoData? specificData = null)
     {
         if (GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
-        
-        TetrominoData data = specificData ?? nextTetromino;
-        activePiece.Initialized(this, spawnPosition, data);
-        if (IsValidPosition(this.activePiece, this.spawnPosition))
+
+        TetrominoData data = specificData ?? _nextTetromino;
+        _activePiece.Initialize(this, SpawnPosition, data);
+
+        if (IsValidPosition(_activePiece, SpawnPosition))
         {
-            Set(this.activePiece);
-            this.activePiece.TriggerPieceUpdated();
+            Set(_activePiece);
+            _activePiece.TriggerPieceUpdated();
         }
         else
         {
-            if (GameManager.Instance != null) GameManager.Instance.GameOver();
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.GameOver();
+            }
             return;
         }
-        
-        if (specificData == null)
+
+        if (!specificData.HasValue)
         {
-            nextTetromino = DequeueNextTetromino();
+            _nextTetromino = _pieceRandomizer.GetNextPiece();
         }
-        DisplayNextPiece(nextTetromino);
-        hasUsedHold = false;
+
+        DisplayNextPiece(_nextTetromino);
+        if (_holdPieceManager != null) _holdPieceManager.ResetTurnHoldFlag();
     }
 
-
-
-    private void DisplayNextPiece(TetrominoData data)
+    public void HoldPiece()
     {
-        if (this.nextPieceTilemap == null) return;
-        this.nextPieceTilemap.ClearAllTiles();
-        DrawPieceOnTilemap(this.nextPieceTilemap, data, new Vector3Int(-1, 1, 0));
+        if (_holdPieceManager == null || _activePiece == null) return;
+
+        Clear(_activePiece);
+
+        if (_holdPieceManager.TryHold(_activePiece.Data, out TetrominoData? pieceToSpawn))
+        {
+            if (pieceToSpawn.HasValue)
+            {
+                SpawnPiece(pieceToSpawn.Value);
+            }
+            else
+            {
+                _nextTetromino = _pieceRandomizer.GetNextPiece();
+                SpawnPiece();
+            }
+        }
+        else
+        {
+            // Nếu không hold được thì đặt lại khối cũ
+            Set(_activePiece);
+        }
     }
 
     /// <summary>
-    /// Vẽ một tetromino lên Tilemap tại vị trí offset cho trước.
+    /// Xử lý sự kiện khi Piece khóa vào bảng: đặt tile, chạy hoạt ảnh xóa dòng và spawn khối tiếp theo.
     /// </summary>
-    public static void DrawPieceOnTilemap(Tilemap tilemap, TetrominoData data, Vector3Int offset)
+    private void HandlePieceLocked(Piece piece)
     {
-        foreach (Vector2Int cell in data.cells)
-        {
-            Vector3Int tilePos = new Vector3Int(cell.x * 2, cell.y * 2, 0) + offset;
-            tilemap.SetTile(tilePos, data.tile);
-        }
+        if (_lockCoroutine != null) StopCoroutine(_lockCoroutine);
+        _lockCoroutine = StartCoroutine(LockSequenceRoutine(piece));
+    }
+
+    private IEnumerator LockSequenceRoutine(Piece piece)
+    {
+        Set(piece);
+        yield return StartCoroutine(ClearLinesAnimated());
+        SpawnPiece();
+        _lockCoroutine = null;
     }
 
     public void Set(Piece piece)
     {
-        for(int i = 0; i < piece.cells.Length; i++)
+        if (_tilemap == null || piece == null || piece.Cells == null) return;
+
+        for (int i = 0; i < piece.Cells.Length; i++)
         {
-            Vector3Int tilePosition = piece.cells[i] + piece.position;
-            this.tilemap.SetTile(tilePosition, piece.data.tile);
+            Vector3Int tilePosition = piece.Cells[i] + piece.Position;
+            _tilemap.SetTile(tilePosition, piece.Data.tile);
         }
     }
-    
+
     public void Clear(Piece piece)
     {
-        for (int i = 0; i < piece.cells.Length; i++)
+        if (_tilemap == null || piece == null || piece.Cells == null) return;
+
+        for (int i = 0; i < piece.Cells.Length; i++)
         {
-            Vector3Int tilePosition = piece.cells[i] + piece.position;
-            this.tilemap.SetTile(tilePosition, null);
+            Vector3Int tilePosition = piece.Cells[i] + piece.Position;
+            _tilemap.SetTile(tilePosition, null);
         }
     }
-    //Kiểm tra tính hợp lệ của vị trí
+
     public bool IsValidPosition(Piece piece, Vector3Int position)
     {
-        RectInt bounds = this.Bounds;
-        for (int i = 0; i < piece.cells.Length; i++)
+        if (_tilemap == null || piece == null || piece.Cells == null) return false;
+
+        RectInt bounds = Bounds;
+        for (int i = 0; i < piece.Cells.Length; i++)
         {
-            Vector3Int tilePosition = piece.cells[i] + position;
+            Vector3Int tilePosition = piece.Cells[i] + position;
             if (!bounds.Contains((Vector2Int)tilePosition))
             {
                 return false;
             }
-            if (this.tilemap.HasTile(tilePosition))
+            if (_tilemap.HasTile(tilePosition))
             {
                 return false;
             }
@@ -227,33 +325,38 @@ public class Board : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// Xóa dòng ngật hóa (không có animation). Dùng nội bộ hoặc khi không cần đợi.
-    /// </summary>
     public void ClearLines()
     {
-        RectInt bounds = this.Bounds;
+        RectInt bounds = Bounds;
         int row = bounds.yMin;
         int linesCleared = 0;
         var clearedRows = new List<int>();
+
         while (row < bounds.yMax)
         {
-            if (IsLineFull(row)) { clearedRows.Add(row); LineClear(row); linesCleared++; }
-            else row++;
+            if (IsLineFull(row))
+            {
+                clearedRows.Add(row);
+                LineClear(row);
+                linesCleared++;
+            }
+            else
+            {
+                row++;
+            }
         }
-        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared, clearedRows);
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.AddScore(linesCleared, clearedRows);
+        }
     }
 
-    /// <summary>
-    /// Xóa dòng kèm hiệu ứng flash. Piece.LockRoutine() phải yield Coroutine này.
-    /// Trong thời gian animation, IsAnimatingLineClear = true — Piece.Update() và
-    /// PlayerInputController sẽ tự block.
-    /// </summary>
     public IEnumerator ClearLinesAnimated()
     {
-        // Bước 1: Thu thập các hàng đầy
-        RectInt bounds = this.Bounds;
+        RectInt bounds = Bounds;
         var fullRows = new List<int>();
+
         for (int row = bounds.yMin; row < bounds.yMax; row++)
         {
             if (IsLineFull(row)) fullRows.Add(row);
@@ -261,120 +364,120 @@ public class Board : MonoBehaviour
 
         if (fullRows.Count == 0)
         {
-            // Không có dòng nào đầy — vẫn gọi AddScore(0) để reset Combo
             if (GameManager.Instance != null) GameManager.Instance.AddScore(0);
             yield break;
         }
 
-        // Bước 2: Lưu tile gốc của các hàng đầy
         IsAnimatingLineClear = true;
         var savedTiles = new Dictionary<Vector3Int, TileBase>();
+
         foreach (int row in fullRows)
         {
             for (int col = bounds.xMin; col < bounds.xMax; col++)
             {
                 var pos = new Vector3Int(col, row, 0);
-                savedTiles[pos] = this.tilemap.GetTile(pos);
+                savedTiles[pos] = _tilemap.GetTile(pos);
             }
         }
 
-        // Bước 3: Flash animation — bật/tắt tile
         float interval = _lineClearFlashDuration / (_lineClearFlashCount * 2f);
         for (int blink = 0; blink < _lineClearFlashCount; blink++)
         {
-            foreach (var pos in savedTiles.Keys) this.tilemap.SetTile(pos, null);
+            foreach (var pos in savedTiles.Keys) _tilemap.SetTile(pos, null);
             yield return new WaitForSeconds(interval);
-            foreach (var kvp in savedTiles)  this.tilemap.SetTile(kvp.Key, kvp.Value);
+            foreach (var kvp in savedTiles) _tilemap.SetTile(kvp.Key, kvp.Value);
             yield return new WaitForSeconds(interval);
         }
 
-        // Bước 4: Thực sự xóa và dịch các hàng xuống (thuật toán gốc)
-        // Tile đang ở trạng thái “flash on” từ vòng cuối — IsLineFull() vẫn đúng
         int rowIdx = bounds.yMin;
         int linesCleared = 0;
+
         while (rowIdx < bounds.yMax)
         {
-            if (IsLineFull(rowIdx)) { LineClear(rowIdx); linesCleared++; }
-            else rowIdx++;
-        }
-
-        if (GameManager.Instance != null) GameManager.Instance.AddScore(linesCleared, fullRows);
-        IsAnimatingLineClear = false;
-    }
-    private bool IsLineFull(int row)
-    {
-        RectInt bounds = this.Bounds;
-        for(int col = bounds.xMin; col < bounds.xMax; col++)
-        {
-            Vector3Int position = new Vector3Int(col, row, 0);
-
-            if (!this.tilemap.HasTile(position))
+            if (IsLineFull(rowIdx))
             {
-                return false ;
+                LineClear(rowIdx);
+                linesCleared++;
+            }
+            else
+            {
+                rowIdx++;
             }
         }
-        return true ;
+
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.AddScore(linesCleared, fullRows);
+        }
+
+        IsAnimatingLineClear = false;
     }
-    //Xóa hàng
-    private void LineClear(int row)
+
+    private bool IsLineFull(int row)
     {
-        RectInt bounds = this.Bounds;
-        for(int col = bounds.xMin; col < bounds.xMax; col++)
+        RectInt bounds = Bounds;
+        for (int col = bounds.xMin; col < bounds.xMax; col++)
         {
             Vector3Int position = new Vector3Int(col, row, 0);
-            this.tilemap.SetTile(position, null);
+            if (!_tilemap.HasTile(position))
+            {
+                return false;
+            }
         }
-        while(row < bounds.yMax)
+        return true;
+    }
+
+    private void LineClear(int row)
+    {
+        RectInt bounds = Bounds;
+        for (int col = bounds.xMin; col < bounds.xMax; col++)
         {
-            for(int col = bounds.xMin; col <bounds.xMax; col++)
+            Vector3Int position = new Vector3Int(col, row, 0);
+            _tilemap.SetTile(position, null);
+        }
+
+        while (row < bounds.yMax)
+        {
+            for (int col = bounds.xMin; col < bounds.xMax; col++)
             {
                 Vector3Int position = new Vector3Int(col, row + 1, 0);
-                TileBase above = this.tilemap.GetTile(position);
+                TileBase above = _tilemap.GetTile(position);
 
                 position = new Vector3Int(col, row, 0);
-                this.tilemap.SetTile(position, above);
+                _tilemap.SetTile(position, above);
             }
             row++;
         }
     }
 
-    //Xử lý chức năng giữ khối
-    private void DisplayHoldPiece()
+    private void DisplayNextPiece(TetrominoData data)
     {
-        if (this.holdPieceTilemap == null) return;
-        this.holdPieceTilemap.ClearAllTiles();
-
-        if (holdPieceData.cells != null && holdPieceData.cells.Length > 0)
-        {
-            Vector3Int startPosition = new Vector3Int(-1, 1, 0);
-
-            foreach (Vector2Int cell in holdPieceData.cells)
-            {
-                Vector3Int tilePosition = new Vector3Int(cell.x * 2, cell.y * 2, 0) + startPosition;
-                this.holdPieceTilemap.SetTile(tilePosition, holdPieceData.tile);
-            }
-        }
+        if (_nextPieceTilemap == null) return;
+        _nextPieceTilemap.ClearAllTiles();
+        DrawPieceOnTilemap(_nextPieceTilemap, data, Vector3Int.zero);
     }
-    public void HoldPiece()
+
+    public static void DrawPieceOnTilemap(Tilemap tilemap, TetrominoData data, Vector3Int offset)
     {
-        if (hasUsedHold) return;
+        if (tilemap == null || data.cells == null || data.cells.Length == 0) return;
 
-        Clear(this.activePiece);
+        int minX = int.MaxValue, maxX = int.MinValue;
+        int minY = int.MaxValue, maxY = int.MinValue;
 
-        if (holdPieceData.cells == null || holdPieceData.cells.Length == 0)
+        for (int i = 0; i < data.cells.Length; i++)
         {
-            holdPieceData = this.activePiece.data;
-            nextTetromino = DequeueNextTetromino();
-            SpawnPiece();
-        }
-        else
-        {
-            TetrominoData temp = holdPieceData;
-            holdPieceData = this.activePiece.data;
-            SpawnPiece(temp);
+            minX = Mathf.Min(minX, data.cells[i].x);
+            maxX = Mathf.Max(maxX, data.cells[i].x);
+            minY = Mathf.Min(minY, data.cells[i].y);
+            maxY = Mathf.Max(maxY, data.cells[i].y);
         }
 
-        DisplayHoldPiece();
-        hasUsedHold = true;
+        Vector3Int centerOffset = new Vector3Int(-(minX + maxX) / 2, -(minY + maxY) / 2, 0) + offset;
+
+        for (int i = 0; i < data.cells.Length; i++)
+        {
+            Vector3Int tilePos = (Vector3Int)data.cells[i] + centerOffset;
+            tilemap.SetTile(tilePos, data.tile);
+        }
     }
 }

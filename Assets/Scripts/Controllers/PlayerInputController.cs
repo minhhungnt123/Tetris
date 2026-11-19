@@ -1,71 +1,84 @@
 using UnityEngine;
 
+/// <summary>
+/// Xử lý tín hiệu điều khiển từ InputManager và các cơ chế lặp phím DAS/ARR (Controller).
+/// </summary>
 [RequireComponent(typeof(Piece))]
 public class PlayerInputController : MonoBehaviour
 {
-    private Piece piece;
-    
-    [Header("Movement Settings")]
-    [Tooltip("Thời gian trễ trước khi khối bắt đầu tự động di chuyển liên tục (DAS).")]
-    public float dasDelay = 0.15f;
-    [Tooltip("Khoảng thời gian giữa mỗi lần di chuyển liên tục qua trái/phải (ARR).")]
-    public float arrDelay = 0.05f;
-    [Tooltip("Khoảng thời gian giữa mỗi lần rơi khi giữ nút xuống (Soft Drop ARR).")]
-    public float softDropArrDelay = 0.05f;
+    [Header("Configuration")]
+    [SerializeField] private TetrisGameSettingsSO _gameSettings;
 
-    private Vector2 currentInput;
-    private float dasTimer;
-    private float arrTimer;
-    private float softDropArrTimer;
+    [Header("Movement Settings (Fallback nếu không có Settings SO)")]
+    [Tooltip("Thời gian trễ trước khi khối bắt đầu tự động di chuyển liên tục (DAS).")]
+    [SerializeField] private float _dasDelay = 0.15f;
+
+    [Tooltip("Khoảng thời gian giữa mỗi lần di chuyển liên tục qua trái/phải (ARR).")]
+    [SerializeField] private float _arrDelay = 0.05f;
+
+    [Tooltip("Khoảng thời gian giữa mỗi lần rơi khi giữ nút xuống (Soft Drop ARR).")]
+    [SerializeField] private float _softDropArrDelay = 0.05f;
+
+    private Piece _piece;
+    private InputManager _inputManager;
+    private Vector2 _currentInput;
+    private float _dasTimer;
+    private float _arrTimer;
+    private float _softDropArrTimer;
+
+    public float DasDelay => _gameSettings != null ? _gameSettings.DasDelay : _dasDelay;
+    public float ArrDelay => _gameSettings != null ? _gameSettings.ArrDelay : _arrDelay;
+    public float SoftDropArrDelay => _gameSettings != null ? _gameSettings.SoftDropArrDelay : _softDropArrDelay;
 
     private void Awake()
     {
-        piece = GetComponent<Piece>();
+        _piece = GetComponent<Piece>();
     }
-
-    private InputManager inputManager;
 
     private void OnEnable()
     {
-        inputManager = InputManager.Instance;
-        if (inputManager == null)
+        _inputManager = InputManager.Instance;
+        if (_inputManager == null)
         {
-            inputManager = FindObjectOfType<InputManager>();
+            _inputManager = FindFirstObjectByType<InputManager>();
         }
 
-        Debug.Log("PlayerInputController: OnEnable called. InputManager found: " + (inputManager != null));
-
-        if (inputManager != null)
+        if (_inputManager != null)
         {
-            inputManager.OnMove += OnMove;
-            inputManager.OnMoveCanceled += OnMoveCanceled;
-            inputManager.OnRotate += OnRotate;
-            inputManager.OnHardDrop += OnHardDrop;
-            inputManager.OnHold += OnHold;
-            inputManager.OnSoftDropStart += OnSoftDropStart;
-            inputManager.OnSoftDropCancel += OnSoftDropCancel;
+            _inputManager.OnMove += OnMove;
+            _inputManager.OnMoveCanceled += OnMoveCanceled;
+            _inputManager.OnRotate += OnRotate;
+            _inputManager.OnHardDrop += OnHardDrop;
+            _inputManager.OnHold += OnHold;
+            _inputManager.OnSoftDropStart += OnSoftDropStart;
+            _inputManager.OnSoftDropCancel += OnSoftDropCancel;
         }
     }
 
     private void OnDisable()
     {
-        if (inputManager != null)
+        if (_inputManager != null)
         {
-            inputManager.OnMove -= OnMove;
-            inputManager.OnMoveCanceled -= OnMoveCanceled;
-            inputManager.OnRotate -= OnRotate;
-            inputManager.OnHardDrop -= OnHardDrop;
-            inputManager.OnHold -= OnHold;
-            inputManager.OnSoftDropStart -= OnSoftDropStart;
-            inputManager.OnSoftDropCancel -= OnSoftDropCancel;
+            _inputManager.OnMove -= OnMove;
+            _inputManager.OnMoveCanceled -= OnMoveCanceled;
+            _inputManager.OnRotate -= OnRotate;
+            _inputManager.OnHardDrop -= OnHardDrop;
+            _inputManager.OnHold -= OnHold;
+            _inputManager.OnSoftDropStart -= OnSoftDropStart;
+            _inputManager.OnSoftDropCancel -= OnSoftDropCancel;
         }
+    }
+
+    public void InitializeSettings(TetrisGameSettingsSO settings)
+    {
+        _gameSettings = settings;
     }
 
     private bool IsInputAllowed()
     {
-        if (piece == null || piece.board == null) return false;
+        if (_piece == null || _piece.Board == null) return false;
         if (GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused)) return false;
-        if (piece.board.IsAnimatingLineClear) return false;
+        if (_piece.Board.IsAnimatingLineClear) return false;
         return true;
     }
 
@@ -73,33 +86,35 @@ public class PlayerInputController : MonoBehaviour
     {
         if (!IsInputAllowed())
         {
-            currentInput = Vector2.zero;
+            _currentInput = Vector2.zero;
             return;
         }
 
-        // Handle continuous horizontal movement
-        if (Mathf.Abs(currentInput.x) > 0.5f)
+        // Xử lý di chuyển ngang tự động (DAS / ARR)
+        if (Mathf.Abs(_currentInput.x) > 0.5f)
         {
-            dasTimer -= Time.deltaTime;
-            if (dasTimer <= 0f)
+            _dasTimer -= Time.deltaTime;
+            if (_dasTimer <= 0f)
             {
-                arrTimer -= Time.deltaTime;
-                while (arrTimer <= 0f)
+                _arrTimer -= Time.deltaTime;
+                float currentArrDelay = ArrDelay;
+                while (_arrTimer <= 0f)
                 {
-                    piece.MovePiece(currentInput.x < -0.5f ? Vector2Int.left : Vector2Int.right);
-                    arrTimer += arrDelay;
+                    _piece.MovePiece(_currentInput.x < -0.5f ? Vector2Int.left : Vector2Int.right);
+                    _arrTimer += currentArrDelay;
                 }
             }
         }
-        
-        // Handle continuous downward movement (Soft Drop từ trục Y)
-        if (currentInput.y < -0.5f)
+
+        // Xử lý rơi nhanh liên tục khi giữ nút xuống (Soft Drop ARR)
+        if (_currentInput.y < -0.5f)
         {
-            softDropArrTimer -= Time.deltaTime;
-            while (softDropArrTimer <= 0f)
+            _softDropArrTimer -= Time.deltaTime;
+            float currentSoftDropArrDelay = SoftDropArrDelay;
+            while (_softDropArrTimer <= 0f)
             {
-                piece.MovePiece(Vector2Int.down);
-                softDropArrTimer += softDropArrDelay;
+                _piece.MovePiece(Vector2Int.down);
+                _softDropArrTimer += currentSoftDropArrDelay;
             }
         }
     }
@@ -108,63 +123,61 @@ public class PlayerInputController : MonoBehaviour
     {
         if (!IsInputAllowed()) return;
 
-        // Xử lý nhấn hoặc đổi hướng trục X (Trái / Phải)
-        if (direction.x != 0 && direction.x != currentInput.x)
+        // Trục X (Trái / Phải)
+        if (direction.x != 0 && direction.x != _currentInput.x)
         {
-            currentInput.x = direction.x;
-            dasTimer = dasDelay;
-            arrTimer = 0f;
-            
-            piece.MovePiece(currentInput.x < -0.5f ? Vector2Int.left : Vector2Int.right);
+            _currentInput.x = direction.x;
+            _dasTimer = DasDelay;
+            _arrTimer = 0f;
+
+            _piece.MovePiece(_currentInput.x < -0.5f ? Vector2Int.left : Vector2Int.right);
         }
 
-        // Xử lý nhấn trục Y (Xuống)
-        if (direction.y < -0.5f && direction.y != currentInput.y)
+        // Trục Y (Xuống)
+        if (direction.y < -0.5f && direction.y != _currentInput.y)
         {
-            currentInput.y = direction.y;
-            softDropArrTimer = 0f; // Di chuyển luôn ở khung hình tiếp theo
-            
-            piece.MovePiece(Vector2Int.down);
+            _currentInput.y = direction.y;
+            _softDropArrTimer = 0f;
+
+            _piece.MovePiece(Vector2Int.down);
         }
     }
 
     private void OnMoveCanceled(Vector2 direction)
     {
-        // Khi thả nút, reset input nếu trục X về 0
         if (Mathf.Abs(direction.x) < 0.5f)
         {
-            currentInput.x = 0;
+            _currentInput.x = 0;
         }
 
-        // Reset input nếu trục Y không còn trỏ xuống
         if (direction.y >= -0.5f)
         {
-            currentInput.y = 0;
+            _currentInput.y = 0;
         }
     }
 
     private void OnRotate()
     {
-        if (IsInputAllowed()) piece.RotatePiece(1);
+        if (IsInputAllowed()) _piece.RotatePiece(1);
     }
 
     private void OnHardDrop()
     {
-        if (IsInputAllowed()) piece.HardDropPiece();
+        if (IsInputAllowed()) _piece.HardDropPiece();
     }
 
     private void OnHold()
     {
-        if (IsInputAllowed()) piece.Hold();
+        if (IsInputAllowed()) _piece.Hold();
     }
 
     private void OnSoftDropStart()
     {
-        if (piece != null) piece.SetFastDrop(true);
+        if (_piece != null) _piece.SetFastDrop(true);
     }
 
     private void OnSoftDropCancel()
     {
-        if (piece != null) piece.SetFastDrop(false);
+        if (_piece != null) _piece.SetFastDrop(false);
     }
 }

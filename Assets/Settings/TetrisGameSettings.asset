@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 29e1c6cd69ce4ca45b6382883a179649, type: 3}
+  m_Name: TetrisGameSettings
+  m_EditorClassIdentifier: Assembly-CSharp::TetrisGameSettingsSO
+  _dasDelay: 0.15
+  _arrDelay: 0.05
+  _softDropArrDelay: 0.05
+  _baseStepDelay: 1
+  _minStepDelay: 0.1
+  _speedMultiplier: 0.9
+  _lockDelay: 0.5
+  _boardSize: {x: 10, y: 20}
+  _spawnPosition: {x: -1, y: 8, z: 0}
+  _lineClearFlashDuration: 0.3
+  _lineClearFlashCount: 3

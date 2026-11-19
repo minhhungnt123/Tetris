@@ -75,3 +75,5 @@ crashlytics-build.properties
 /.agents/
 /.codegraph/
 /.claude/
+/plan-refactor-and-editor-fix.md
+/[Aa]ssets/[Ss]creenshots*
