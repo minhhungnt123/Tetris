@@ -85,31 +85,46 @@ Toàn bộ nhánh (branch) và lịch sử commit của dự án tuân thủ ngh
 
 ## 🏗️ Kiến trúc mã nguồn (Code Architecture)
 
-Mã nguồn C# được bố trí trong thư mục `Assets/Scripts/` theo cấu trúc tách biệt trách nhiệm:
+Mã nguồn C# được bố trí trong thư mục `Assets/Scripts/` theo cấu trúc tách biệt trách nhiệm, tuân thủ nguyên lý **SOLID**:
 
 ```
 Assets/Scripts/
-├── Core/               # Dữ liệu thuần C# (Plain C# / Structs / Enums / Static Data)
-│   ├── Tetromino.cs    # Enum định nghĩa 7 khối gạch & struct TetrominoData
-│   ├── Data.cs         # Ma trận tọa độ các khối & bảng Wall Kick SRS
-│   └── GameMode.cs     # Các chế độ chơi
-├── Managers/           # Quản lý trạng thái toàn cục (Singleton Pattern & C# Events)
-│   ├── GameManager.cs  # Quản lý điểm số, level, dòng xóa, combo, pause/gameover
-│   ├── Board.cs        # Quản lý Tilemap ma trận, hàng gạch, 7-bag, animation xóa hàng
-│   ├── InputManager.cs # Điểm duy nhất lắng nghe Input Action và phát C# Actions
-│   └── UIManager.cs    # Tầng hiển thị UI, chỉ lắng nghe event từ GameManager/Board
-├── Controllers/        # Hành vi gắn trực tiếp lên GameObjects
-│   ├── Piece.cs        # Điều khiển khối đang rơi (trọng lực, lock delay, xoay, hard drop)
-│   ├── Ghost.cs        # Khối bóng chiếu vị trí tiếp đất của khối hiện tại
-│   └── PlayerInputController.cs # Xử lý DAS, ARR và truyền lệnh từ InputManager đến Piece
-└── Utils/              # Các hàm tiện ích bổ trợ
+├── Core/                         # Dữ liệu & Quy tắc nghiệp vụ cốt lõi (Domain Logic & Abstractions)
+│   ├── Tetromino.cs              # Enum định nghĩa 7 khối gạch & struct TetrominoData
+│   ├── Data.cs                   # Ma trận tọa độ các khối & bảng Wall Kick SRS
+│   ├── GameMode.cs               # Enum định nghĩa các chế độ chơi (Marathon, Sprint,...)
+│   ├── IGameModeRule.cs          # Interface trừu tượng hóa quy tắc từng chế độ chơi
+│   ├── MarathonModeRule.cs       # Logic chế độ Marathon (chơi tăng dần tốc độ theo level)
+│   ├── SprintModeRule.cs         # Logic chế độ Sprint (chạy đua xóa 40 dòng)
+│   ├── IPieceRandomizer.cs       # Interface trừu tượng hóa thuật toán sinh khối
+│   ├── SevenBagRandomizer.cs     # Triển khai thuật toán 7-Bag Randomizer độc lập
+│   ├── IScoreService.cs          # Interface xử lý tính điểm và hệ số combo
+│   ├── TetrisGameSettingsSO.cs   # ScriptableObject cấu hình gameplay, DAS/ARR, trọng lực
+│   └── TetrisScoringSettingsSO.cs# ScriptableObject cấu hình bảng điểm, combo & back-to-back
+├── Managers/                     # Quản lý trạng thái và dịch vụ toàn cục (Singleton & C# Events)
+│   ├── GameManager.cs            # Điều phối trạng thái vòng đời game (Start, Pause, GameOver, GameMode)
+│   ├── Board.cs                  # Quản lý bàn cờ Tilemap, kiểm tra va chạm, line clear animation
+│   ├── ScoreManager.cs           # Quản lý điểm số, level, lines cleared (triển khai IScoreService)
+│   ├── InputManager.cs           # Điểm duy nhất lắng nghe Input Action và phát C# Events
+│   └── UIManager.cs              # Tầng view giao diện, lắng nghe sự kiện từ các Managers
+├── Controllers/                  # Hành vi điều khiển gắn trên GameObjects
+│   ├── Piece.cs                  # Điều khiển khối đang rơi (trọng lực, lock delay, xoay SRS, hard drop)
+│   ├── Ghost.cs                  # Khối bóng chiếu vị trí tiếp đất của khối hiện tại
+│   ├── PlayerInputController.cs  # Xử lý DAS, ARR và chuyển đổi input từ InputManager tới Piece
+│   ├── HoldPieceManager.cs       # Quản lý logic giữ khối (Hold Piece) tách biệt
+│   └── OnlineLobbyStub.cs        # Stub chuẩn bị mở rộng chế độ nhiều người chơi (Multiplayer)
+└── Utils/                        # Tiện ích bổ trợ và hiệu ứng trực quan
+    ├── FloatingScoreEffect.cs    # Hiệu ứng chuyển động & mờ dần của số điểm bay
+    └── FloatingScoreSpawner.cs   # Spawner quản lý khởi tạo Floating Score trên màn hình
 ```
 
 ### Nguyên tắc lập trình cốt lõi:
-1. **Board mutation pattern:** Mọi thay đổi vị trí hoặc góc xoay của `Piece` phải tuân thủ nghiêm ngặt:
+1. **Single Responsibility & Dependency Inversion:** Logic tính điểm (`ScoreManager`/`IScoreService`), sinh khối (`SevenBagRandomizer`/`IPieceRandomizer`) và luật chơi (`IGameModeRule`) được tách rời khỏi `GameManager`, giúp dễ dàng mở rộng và viết unit test.
+2. **Data-Driven Configuration:** Thông số gameplay (tốc độ rơi, thời gian DAS/ARR, bảng điểm) được lưu trữ tại `Assets/Settings/` qua các ScriptableObject (`TetrisGameSettingsSO`, `TetrisScoringSettingsSO`), cho phép cân bằng game trực tiếp trên Inspector mà không cần sửa code.
+3. **Board mutation pattern:** Mọi thay đổi vị trí hoặc góc xoay của `Piece` phải tuân thủ nghiêm ngặt:
    `Board.Clear(piece)` ➡️ thay đổi trạng thái/tọa độ ➡️ `Board.Set(piece)`.
-2. **Event-driven communication:** Các Manager giao tiếp qua C# Events (`System.Action`), không dùng polling trong `Update()`.
-3. **Input encapsulation:** Chỉ `InputManager` được phép đọc trực tiếp `InputActionReference`; các script khác chỉ đăng ký nhận sự kiện.
+4. **Event-driven communication:** Các Manager giao tiếp qua C# Events (`System.Action`), không dùng polling trong `Update()`.
+5. **Input encapsulation:** Chỉ `InputManager` được phép đọc trực tiếp `InputActionReference`; các script khác chỉ đăng ký nhận sự kiện.
 
 ---
 
@@ -155,16 +170,19 @@ git restore .
 
 ```
 Assets/
-├── Animations/          # Animation clips & controllers
-├── Audio/               # Nhạc nền (BGM) và hiệu ứng âm thanh (SFX)
-├── Materials/           # Material hiển thị
-├── Prefabs/             # Các prefab game (Board, Pieces, UI Elements)
-├── Scenes/              # Scenes của game (chính: Tetris.unity)
-├── Scripts/             # Toàn bộ mã nguồn C# (Core, Managers, Controllers, Utils)
-├── TextMesh Pro/        # Resource & fonts cho UI TextMesh Pro
-├── Textures/            # Hình ảnh sprite, icon
-├── Tiles/               # Unity Tileset dùng để vẽ các khối gạch lên Tilemap
-└── InputAction.inputactions # Cấu hình Unity Input System Actions
+├── Animations/                  # Animation clips & controllers
+├── Audio/                       # Nhạc nền (BGM) và hiệu ứng âm thanh (SFX)
+├── Materials/                   # Material hiển thị
+├── Prefabs/                     # Các prefab game (Blocks, FloatingScoreEffect, UI Elements)
+├── Scenes/                      # Scenes của game (chính: Tetris.unity)
+├── Screenshots/                 # Ảnh chụp màn hình tiến độ / kiểm thử giao diện
+├── Scripts/                     # Toàn bộ mã nguồn C# (Core, Managers, Controllers, Utils)
+├── Settings/                    # ScriptableObject cấu hình gameplay & scoring (.asset)
+├── TextMesh Pro/                # Resource & fonts cho UI TextMesh Pro
+├── Textures/                    # Hình ảnh sprite, icon, background
+├── Tiles/                       # Unity Tileset dùng để vẽ các khối gạch lên Tilemap
+├── InputAction.inputactions     # Cấu hình Unity Input System Actions (Action Maps)
+└── InputSystem_Actions.inputactions # Cấu hình Input Actions mặc định của Unity
 ```
 
 ---
