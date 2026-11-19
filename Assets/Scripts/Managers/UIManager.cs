@@ -1,10 +1,16 @@
 using System.Collections.Generic;
+using System.Text;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
+/// <summary>
+/// Quản lý hiển thị các màn hình và cập nhật HUD (View layer).
+/// Lắng nghe các sự kiện từ GameManager và ScoreManager (SRP).
+/// </summary>
 public class UIManager : MonoBehaviour
 {
+    [Header("Primary Panels")]
     public GameObject startPanel;
     public GameObject gameOverPanel;
     public GameObject pausePanel;
@@ -14,17 +20,19 @@ public class UIManager : MonoBehaviour
     public GameObject versusAIPanel;
     public GameObject lobbyPanel;
 
+    [Header("HUD Text Elements")]
     public TMP_Text scoreText;
     public TMP_Text levelText;
     public TMP_Text historyText;
     public TMP_Text gameOverHistoryText;
 
     [Header("Combo & B2B Display")]
-    [Tooltip("Hiển thị số combo hiện tại. Để trống nếu không có UI.")]
+    [Tooltip("Hiển thị số combo hiện tại.")]
     public TMP_Text comboText;
-    [Tooltip("Hiển thị nhãn B2B khi Tetris liên tiếp. Để trống nếu không có UI.")]
+    [Tooltip("Hiển thị nhãn B2B khi Tetris liên tiếp.")]
     public TMP_Text backToBackText;
 
+    [Header("Main Menu & Dialog Buttons")]
     public Button startButton;
     public Button resetButton;
     public Button backToHomeButton;
@@ -39,12 +47,13 @@ public class UIManager : MonoBehaviour
     public Button onlineMultiplayerButton;
     public Button modeSelectBackButton;
 
-    [Header("Versus AI Placeholder Buttons")]
+    [Header("Versus AI Buttons")]
     public Button versusAIBackButton;
 
-    [Header("Lobby Placeholder Buttons")]
-    [Tooltip("Nút Back trong LobbyPanel. Nút Create Room/Join Room do OnlineLobbyStub tự quản lý.")]
+    [Header("Lobby Buttons")]
     public Button lobbyBackButton;
+
+    private readonly StringBuilder _historyStringBuilder = new StringBuilder();
 
     private void Start()
     {
@@ -60,13 +69,13 @@ public class UIManager : MonoBehaviour
             GameManager.Instance.OnComboUpdated += HandleComboUpdated;
             GameManager.Instance.OnBackToBack += HandleBackToBack;
 
-            startButton.onClick.AddListener(HandleStartButtonClicked);
-            resetButton.onClick.AddListener(GameManager.Instance.StartGame);
-            restartButton.onClick.AddListener(GameManager.Instance.StartGame);
-            resumeButton.onClick.AddListener(GameManager.Instance.ResumeGame);
+            if (startButton != null) startButton.onClick.AddListener(HandleStartButtonClicked);
+            if (resetButton != null) resetButton.onClick.AddListener(GameManager.Instance.StartGame);
+            if (restartButton != null) restartButton.onClick.AddListener(GameManager.Instance.StartGame);
+            if (resumeButton != null) resumeButton.onClick.AddListener(GameManager.Instance.ResumeGame);
 
-            backToHomeButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
-            quitButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
+            if (backToHomeButton != null) backToHomeButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
+            if (quitButton != null) quitButton.onClick.AddListener(GameManager.Instance.ShowStartMenu);
 
             if (marathonButton != null) marathonButton.onClick.AddListener(HandleMarathonButtonClicked);
             if (sprintButton != null) sprintButton.interactable = false;
@@ -104,10 +113,6 @@ public class UIManager : MonoBehaviour
         ShowOnlyPanel(null);
     }
 
-    /// <summary>
-    /// Ẩn tất cả các panel màn hình (start/mode select/versus AI/lobby/game over/pause)
-    /// rồi chỉ hiện panel được chỉ định. Truyền null để ẩn hết (vào gameplay).
-    /// </summary>
     private void ShowOnlyPanel(GameObject panelToShow)
     {
         if (startPanel != null) startPanel.SetActive(startPanel == panelToShow);
@@ -187,7 +192,6 @@ public class UIManager : MonoBehaviour
 
         backToBackText.text = "BACK-TO-BACK!";
         backToBackText.gameObject.SetActive(true);
-        // Tự ẩn sau 2 giây
         CancelInvoke(nameof(HideBackToBackText));
         Invoke(nameof(HideBackToBackText), 2f);
     }
@@ -210,15 +214,20 @@ public class UIManager : MonoBehaviour
 
     private void HandleScoreHistoryUpdated(List<int> scoreHistory)
     {
+        if (scoreHistory == null) return;
+
         List<int> sortedScores = new List<int>(scoreHistory);
         sortedScores.Sort((a, b) => b.CompareTo(a));
         int max = Mathf.Min(sortedScores.Count, 5);
-        string historyStr = "HIGH SCORE\n";
+
+        _historyStringBuilder.Clear();
+        _historyStringBuilder.AppendLine("HIGH SCORE");
         for (int i = 0; i < max; i++)
         {
-            historyStr += $"{i + 1}. {sortedScores[i]} points\n";
+            _historyStringBuilder.Append(i + 1).Append(". ").Append(sortedScores[i]).AppendLine(" points");
         }
 
+        string historyStr = _historyStringBuilder.ToString();
         if (historyText != null) historyText.text = historyStr;
         if (gameOverHistoryText != null) gameOverHistoryText.text = historyStr;
     }

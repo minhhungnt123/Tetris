@@ -1,29 +1,51 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
+/// <summary>
+/// Hiển thị hình chiếu (Ghost Piece) vị trí tiếp đất của khối đang rơi (SRP).
+/// </summary>
 public class Ghost : MonoBehaviour
 {
-    public Tile tile;
-    public Board board;
-    public Piece trackingPiece;
+    [SerializeField] private Tile _tile;
+    [SerializeField] private Board _board;
+    [SerializeField] private Piece _trackingPiece;
 
-    public Tilemap tilemap { get; private set; }
-    public Vector3Int[] cells { get; private set; }
-    public Vector3Int position { get; private set; }
+    private Tilemap _tilemap;
+    private Vector3Int[] _cells;
+    private Vector3Int _position;
+
+    public Tilemap Tilemap => _tilemap;
+    public Vector3Int[] Cells => _cells;
+    public Vector3Int Position => _position;
+
+    // Backward-compatibility aliases
+    public Tile tile
+    {
+        get => _tile;
+        set => _tile = value;
+    }
+    public Board board
+    {
+        get => _board;
+        set => _board = value;
+    }
+    public Piece trackingPiece
+    {
+        get => _trackingPiece;
+        set => _trackingPiece = value;
+    }
 
     private void Awake()
     {
-        this.tilemap = GetComponentInChildren<Tilemap>();
-        this.cells = new Vector3Int[4];
+        _tilemap = GetComponentInChildren<Tilemap>();
+        _cells = new Vector3Int[4];
     }
 
     private void Start()
     {
-        if (this.trackingPiece != null)
+        if (_trackingPiece != null)
         {
-            this.trackingPiece.OnPieceUpdated += HandlePieceUpdated;
+            _trackingPiece.OnPieceUpdated += HandlePieceUpdated;
         }
 
         if (GameManager.Instance != null)
@@ -35,9 +57,9 @@ public class Ghost : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (this.trackingPiece != null)
+        if (_trackingPiece != null)
         {
-            this.trackingPiece.OnPieceUpdated -= HandlePieceUpdated;
+            _trackingPiece.OnPieceUpdated -= HandlePieceUpdated;
         }
 
         if (GameManager.Instance != null)
@@ -55,8 +77,6 @@ public class Ghost : MonoBehaviour
         Set();
     }
 
-    // Game Over hoặc quay về màn Home: Piece không còn bắn OnPieceUpdated nữa
-    // nên ghost của khối cuối cùng sẽ bị kẹt lại trên board nếu không xóa thủ công.
     private void HandleGameOver()
     {
         ClearGhostTilemap();
@@ -69,56 +89,64 @@ public class Ghost : MonoBehaviour
 
     private void ClearGhostTilemap()
     {
-        if (this.tilemap != null) this.tilemap.ClearAllTiles();
+        if (_tilemap != null) _tilemap.ClearAllTiles();
     }
 
     private void Clear()
     {
-        for (int i = 0; i < this.cells.Length; i++)
+        if (_tilemap == null || _cells == null) return;
+
+        for (int i = 0; i < _cells.Length; i++)
         {
-            Vector3Int tilePosition = this.cells[i] + this.position;
-            this.tilemap.SetTile(tilePosition, null);
+            Vector3Int tilePosition = _cells[i] + _position;
+            _tilemap.SetTile(tilePosition, null);
         }
     }
 
     private void Copy()
     {
-        for (int i = 0; i < this.cells.Length; i++)
+        if (_trackingPiece == null || _trackingPiece.Cells == null) return;
+
+        for (int i = 0; i < _cells.Length; i++)
         {
-            this.cells[i] = this.trackingPiece.cells[i];
+            _cells[i] = _trackingPiece.Cells[i];
         }
     }
 
     private void Drop()
     {
-        Vector3Int position = this.trackingPiece.position;
+        if (_trackingPiece == null || _board == null) return;
 
-        int current = position.y;
-        int bottom = -this.board.boardSize.y / 2 - 1;
+        Vector3Int currentPos = _trackingPiece.Position;
+        int current = currentPos.y;
+        int bottom = -_board.BoardSize.y / 2 - 1;
 
-        this.board.Clear(this.trackingPiece);
+        _board.Clear(_trackingPiece);
 
-        for(int row = current; row >= bottom; row--)
+        for (int row = current; row >= bottom; row--)
         {
-            position.y = row;
-            if(this.board.IsValidPosition(this.trackingPiece, position))
+            currentPos.y = row;
+            if (_board.IsValidPosition(_trackingPiece, currentPos))
             {
-                this.position = position;
+                _position = currentPos;
             }
             else
             {
                 break;
             }
         }
-        this.board.Set(this.trackingPiece);
+
+        _board.Set(_trackingPiece);
     }
 
     private void Set()
     {
-        for (int i = 0; i < this.cells.Length; i++)
+        if (_tilemap == null || _cells == null) return;
+
+        for (int i = 0; i < _cells.Length; i++)
         {
-            Vector3Int tilePosition = this.cells[i] + this.position;
-            this.tilemap.SetTile(tilePosition, this.tile);
+            Vector3Int tilePosition = _cells[i] + _position;
+            _tilemap.SetTile(tilePosition, _tile);
         }
     }
 }

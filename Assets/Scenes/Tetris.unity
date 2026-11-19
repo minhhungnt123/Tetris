@@ -177,9 +177,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 48658694625ab4245b1af94902a695a1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  tile: {fileID: 11400000, guid: f04c0b9405f6ac34c9db25ac4971a6e7, type: 2}
-  board: {fileID: 548754308}
-  trackingPiece: {fileID: 548754309}
+  _tile: {fileID: 0}
+  _board: {fileID: 0}
+  _trackingPiece: {fileID: 0}
 --- !u!1 &65898336
 GameObject:
   m_ObjectHideFlags: 0
@@ -1997,6 +1997,7 @@ GameObject:
   - component: {fileID: 548754308}
   - component: {fileID: 548754309}
   - component: {fileID: 548754310}
+  - component: {fileID: 548754311}
   m_Layer: 0
   m_Name: Board
   m_TagString: Untagged
@@ -2044,6 +2045,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 877a965d394dfb34f83b380b2d8a54c9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _gameSettings: {fileID: 11400000, guid: d16656be8917e2c43b0e83918c3ef303, type: 2}
   tetrominoes:
   - tetromino: 0
     tile: {fileID: 11400000, guid: 1714d788274c3ee4bb8a28ba5a680764, type: 2}
@@ -2059,10 +2061,9 @@ MonoBehaviour:
     tile: {fileID: 11400000, guid: 00fdd864d3939b9419b09c3fff15b9dc, type: 2}
   - tetromino: 6
     tile: {fileID: 11400000, guid: b020cbc0ada9ea2489566e3eea145405, type: 2}
-  spawnPosition: {x: -1, y: 8, z: 0}
-  boardSize: {x: 10, y: 20}
-  nextPieceTilemap: {fileID: 1578892414}
-  holdPieceTilemap: {fileID: 1846418537}
+  _tilemap: {fileID: 0}
+  _nextPieceTilemap: {fileID: 0}
+  _holdPieceTilemap: {fileID: 0}
   _lineClearFlashDuration: 0.3
   _lineClearFlashCount: 3
 --- !u!114 &548754309
@@ -2077,8 +2078,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 382e6232b37291f4bb98c736c185ed4e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  stepDelay: 1
-  lockDelay: 0.5
+  _stepDelay: 1
+  _lockDelay: 0.5
 --- !u!114 &548754310
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2091,9 +2092,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5ecf89a9402ec944381ddc3a5778e0fc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerInputController
-  dasDelay: 0.15
-  arrDelay: 0.05
-  softDropArrDelay: 0.05
+  _gameSettings: {fileID: 11400000, guid: d16656be8917e2c43b0e83918c3ef303, type: 2}
+  _dasDelay: 0.15
+  _arrDelay: 0.05
+  _softDropArrDelay: 0.05
+--- !u!114 &548754311
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 548754305}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 006944133bf557b40af097130a6cc645, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HoldPieceManager
+  _holdPieceTilemap: {fileID: 1846418537}
 --- !u!1 &560950984
 GameObject:
   m_ObjectHideFlags: 0
@@ -5578,10 +5593,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 25e5588b23977d745a81e54f77b222d0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OnlineLobbyStub
-  roomCodeInputField: {fileID: 2017633002}
-  createRoomButton: {fileID: 1414636707}
-  joinRoomButton: {fileID: 744990212}
-  statusText: {fileID: 1283282197}
+  _roomCodeInputField: {fileID: 0}
+  _createRoomButton: {fileID: 0}
+  _joinRoomButton: {fileID: 0}
+  _statusText: {fileID: 0}
 --- !u!114 &1593317935
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7008,6 +7023,7 @@ GameObject:
   - component: {fileID: 2134103219}
   - component: {fileID: 2134103221}
   - component: {fileID: 2134103222}
+  - component: {fileID: 2134103223}
   m_Layer: 0
   m_Name: GameController
   m_TagString: Untagged
@@ -7079,6 +7095,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 36a5d75ae70f0a449be5a5b6b3851640, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameManager
+  _scoreManager: {fileID: 0}
 --- !u!114 &2134103222
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7097,6 +7114,19 @@ MonoBehaviour:
   holdAction: {fileID: -3762022247930503295, guid: 229c645458bb0ef468cf404f189aeb31, type: 3}
   softDropAction: {fileID: -8862434033365804602, guid: 229c645458bb0ef468cf404f189aeb31, type: 3}
   pauseAction: {fileID: -7138554177125175423, guid: 229c645458bb0ef468cf404f189aeb31, type: 3}
+--- !u!114 &2134103223
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2134103218}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6dd8d9da5bf55b468b50ee80b87fdc2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScoreManager
+  _scoringSettings: {fileID: 11400000, guid: b5fe695d1cabdd44cb814a7b98149770, type: 2}
 --- !u!1 &2136308586
 GameObject:
   m_ObjectHideFlags: 0

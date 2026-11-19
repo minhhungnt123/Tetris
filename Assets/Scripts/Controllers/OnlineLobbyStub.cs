@@ -1,33 +1,77 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
 
 /// <summary>
-/// Controller tạm thời cho LobbyPanel (Online Multiplayer). Chưa tích hợp networking thật -
-/// chỉ phản hồi UI để có thể duyệt qua flow trước khi triển khai netcode ở giai đoạn sau.
+/// Controller tạm thời cho LobbyPanel (Online Multiplayer).
+/// Phản hồi giao diện người dùng trước khi tích hợp Netcode hoàn chỉnh ở giai đoạn sau (SRP).
 /// </summary>
 public class OnlineLobbyStub : MonoBehaviour
 {
-    [Tooltip("Ô nhập room code khi Join Room.")]
-    public TMP_InputField roomCodeInputField;
+    [Header("Input & Buttons")]
+    [Tooltip("Ô nhập mã phòng khi Join Room.")]
+    [SerializeField] private TMP_InputField _roomCodeInputField;
 
-    public Button createRoomButton;
-    public Button joinRoomButton;
+    [SerializeField] private Button _createRoomButton;
+    [SerializeField] private Button _joinRoomButton;
 
-    [Tooltip("Text hiển thị thông báo 'Coming soon' khi bấm Create/Join Room.")]
-    public TMP_Text statusText;
+    [Tooltip("Text hiển thị thông báo trạng thái khi bấm Create/Join Room.")]
+    [SerializeField] private TMP_Text _statusText;
+
+    public TMP_InputField RoomCodeInputField
+    {
+        get => _roomCodeInputField;
+        set => _roomCodeInputField = value;
+    }
+    public Button CreateRoomButton
+    {
+        get => _createRoomButton;
+        set => _createRoomButton = value;
+    }
+    public Button JoinRoomButton
+    {
+        get => _joinRoomButton;
+        set => _joinRoomButton = value;
+    }
+    public TMP_Text StatusText
+    {
+        get => _statusText;
+        set => _statusText = value;
+    }
+
+    // Backward-compatibility aliases
+    public TMP_InputField roomCodeInputField
+    {
+        get => _roomCodeInputField;
+        set => _roomCodeInputField = value;
+    }
+    public Button createRoomButton
+    {
+        get => _createRoomButton;
+        set => _createRoomButton = value;
+    }
+    public Button joinRoomButton
+    {
+        get => _joinRoomButton;
+        set => _joinRoomButton = value;
+    }
+    public TMP_Text statusText
+    {
+        get => _statusText;
+        set => _statusText = value;
+    }
 
     private void OnEnable()
     {
-        if (createRoomButton != null) createRoomButton.onClick.AddListener(OnCreateRoomClicked);
-        if (joinRoomButton != null) joinRoomButton.onClick.AddListener(OnJoinRoomClicked);
-        if (statusText != null) statusText.gameObject.SetActive(false);
+        if (_createRoomButton != null) _createRoomButton.onClick.AddListener(OnCreateRoomClicked);
+        if (_joinRoomButton != null) _joinRoomButton.onClick.AddListener(OnJoinRoomClicked);
+        if (_statusText != null) _statusText.gameObject.SetActive(false);
     }
 
     private void OnDisable()
     {
-        if (createRoomButton != null) createRoomButton.onClick.RemoveListener(OnCreateRoomClicked);
-        if (joinRoomButton != null) joinRoomButton.onClick.RemoveListener(OnJoinRoomClicked);
+        if (_createRoomButton != null) _createRoomButton.onClick.RemoveListener(OnCreateRoomClicked);
+        if (_joinRoomButton != null) _joinRoomButton.onClick.RemoveListener(OnJoinRoomClicked);
     }
 
     public void OnCreateRoomClicked()
@@ -42,11 +86,11 @@ public class OnlineLobbyStub : MonoBehaviour
 
     private void ShowComingSoon(string message)
     {
-        Debug.Log(message);
-        if (statusText != null)
+        Debug.Log($"[OnlineLobbyStub] {message}");
+        if (_statusText != null)
         {
-            statusText.text = message;
-            statusText.gameObject.SetActive(true);
+            _statusText.text = message;
+            _statusText.gameObject.SetActive(true);
         }
     }
 }

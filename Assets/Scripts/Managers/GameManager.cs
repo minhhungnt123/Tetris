@@ -2,47 +2,44 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// Quản lý vòng đời và trạng thái toàn cục của game: Start, Pause, Resume, Game Over và Game Mode (SRP).
+/// Các nghiệp vụ tính điểm và lưu trữ được ủy quyền cho ScoreManager (IScoreService).
+/// </summary>
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    public int Score { get; private set; }
+    [Header("Dependencies")]
+    [SerializeField] private ScoreManager _scoreManager;
+
+    public int Score => _scoreManager != null ? _scoreManager.CurrentScore : 0;
     public int Level { get; private set; } = 1;
     public int LinesCleared { get; private set; }
     public bool IsGameOver { get; private set; }
     public bool IsPaused { get; private set; }
-    public int ComboCount { get; private set; }
+    public int ComboCount => _scoreManager != null ? _scoreManager.ComboCount : 0;
     public GameMode CurrentGameMode { get; private set; } = GameMode.Marathon;
 
-    private const int LinesPerLevel = 10;
+    public List<int> ScoreHistory => _scoreManager != null 
+        ? new List<int>(_scoreManager.ScoreHistory) 
+        : new List<int> { 5000, 4000, 3000, 2000, 1000 };
 
-    // Bảng điểm chuẩn Tetris Guideline (điểm gốc, nhân với Level+1)
-    private static readonly int[] BasePoints = { 0, 100, 300, 500, 800 };
+    private IGameModeRule _currentGameModeRule;
 
-    // Theo dõi trạng thái xóa để tính Back-to-Back
-    private bool _lastClearWasTetris;
-    
-    public List<int> ScoreHistory { get; private set; } = new List<int> { 5000, 4000, 3000, 2000, 1000 };
-
+    // Các sự kiện vòng đời
     public event Action OnGameStarted;
     public event Action OnGameOver;
     public event Action<bool> OnPauseToggled;
-    public event Action<int> OnScoreChanged;
     public event Action<int> OnLevelChanged;
-    public event Action<List<int>> OnScoreHistoryUpdated;
     public event Action OnShowStartMenu;
 
-    /// <summary>Kích hoạt khi combo thay đổi. Tham số: số combo hiện tại (0 = reset).</summary>
+    // Chuyển tiếp các sự kiện từ ScoreService để giữ tương thích ngược
+    public event Action<int> OnScoreChanged;
     public event Action<int> OnComboUpdated;
-
-    /// <summary>Kích hoạt khi xảy ra Back-to-Back Tetris.</summary>
     public event Action OnBackToBack;
-
-    /// <summary>
-    /// Kích hoạt sau khi xóa dòng thành công.
-    /// Tham số: (int points) điểm vừa nhận được, (List&lt;int&gt; clearedRows) chỉ số các hàng đã xóa.
-    /// </summary>
     public event Action<int, List<int>> OnLineClearScore;
+    public event Action<List<int>> OnScoreHistoryUpdated;
 
     private void Awake()
     {
@@ -53,7 +50,24 @@ public class GameManager : MonoBehaviour
         else
         {
             Destroy(gameObject);
+            return;
         }
+
+        if (_scoreManager == null)
+        {
+            _scoreManager = GetComponent<ScoreManager>();
+            if (_scoreManager == null)
+            {
+                _scoreManager = gameObject.AddComponent<ScoreManager>();
+            }
+        }
+
+        // Đăng ký chuyển tiếp sự kiện từ ScoreManager
+        _scoreManager.OnScoreChanged += (score) => OnScoreChanged?.Invoke(score);
+        _scoreManager.OnComboUpdated += (combo) => OnComboUpdated?.Invoke(combo);
+        _scoreManager.OnBackToBack += () => OnBackToBack?.Invoke();
+        _scoreManager.OnLineClearScore += (pts, rows) => OnLineClearScore?.Invoke(pts, rows);
+        _scoreManager.OnScoreHistoryUpdated += (hist) => OnScoreHistoryUpdated?.Invoke(new List<int>(hist));
     }
 
     private void Start()
@@ -88,7 +102,10 @@ public class GameManager : MonoBehaviour
     public void ShowStartMenu()
     {
         OnShowStartMenu?.Invoke();
-        OnScoreHistoryUpdated?.Invoke(ScoreHistory);
+        if (_scoreManager != null)
+        {
+            OnScoreHistoryUpdated?.Invoke(new List<int>(_scoreManager.ScoreHistory));
+        }
     }
 
     public void StartGame()
@@ -100,24 +117,42 @@ public class GameManager : MonoBehaviour
     {
         CurrentGameMode = mode;
         IsGameOver = false;
-        Score = 0;
         Level = 1;
         LinesCleared = 0;
         IsPaused = false;
-        ComboCount = 0;
-        _lastClearWasTetris = false;
         Time.timeScale = 1;
 
-        OnScoreChanged?.Invoke(Score);
+        // Khởi tạo quy tắc cho GameMode tương ứng (Strategy Pattern - OCP)
+        switch (mode)
+        {
+            case GameMode.Sprint:
+                _currentGameModeRule = new SprintModeRule(40);
+                break;
+            default:
+                _currentGameModeRule = new MarathonModeRule(10);
+                break;
+        }
+        _currentGameModeRule.OnGameStarted();
+
+        if (_scoreManager != null)
+        {
+            _scoreManager.ResetScore();
+        }
+
         OnLevelChanged?.Invoke(Level);
         OnGameStarted?.Invoke();
     }
 
     public void GameOver()
     {
+        if (IsGameOver) return;
+
         IsGameOver = true;
-        ScoreHistory.Add(Score);
-        OnScoreHistoryUpdated?.Invoke(ScoreHistory);
+        if (_scoreManager != null)
+        {
+            _scoreManager.SaveCurrentScore();
+        }
+
         OnGameOver?.Invoke();
     }
 
@@ -136,56 +171,35 @@ public class GameManager : MonoBehaviour
         OnPauseToggled?.Invoke(IsPaused);
     }
 
-    /// <summary>
-    /// Cập nhật điểm khi xóa dòng thành công.
-    /// </summary>
-    /// <param name="lines">Số dòng đã xóa.</param>
-    /// <param name="clearedRows">Danh sách chỉ số hàng đã xóa (dùng để spawn floating text).</param>
     public void AddScore(int lines, List<int> clearedRows = null)
     {
-        if (lines <= 0)
+        if (IsGameOver) return;
+
+        int pointsEarned = 0;
+        if (_scoreManager != null)
         {
-            // Không xóa được dòng nào: reset combo
-            ComboCount = 0;
-            _lastClearWasTetris = false;
-            OnComboUpdated?.Invoke(ComboCount);
-            return;
+            pointsEarned = _scoreManager.AddLineClearScore(lines, Level, clearedRows);
         }
 
-        // --- Tính Combo ---
-        ComboCount++;
-        OnComboUpdated?.Invoke(ComboCount);
-
-        // Combo multiplier: x1.0 lần đầu, +0.5 mỗi combo tiếp theo
-        float comboMultiplier = 1f + Mathf.Max(0, ComboCount - 1) * 0.5f;
-
-        // --- Tính Back-to-Back (Tetris liên tiếp) ---
-        bool isTetris = lines == 4;
-        bool isBackToBack = isTetris && _lastClearWasTetris;
-        float b2bMultiplier = isBackToBack ? 1.5f : 1f;
-
-        if (isBackToBack)
+        if (lines > 0)
         {
-            OnBackToBack?.Invoke();
-        }
+            LinesCleared += lines;
 
-        _lastClearWasTetris = isTetris;
+            if (_currentGameModeRule != null)
+            {
+                _currentGameModeRule.OnLinesCleared(LinesCleared, lines, out bool shouldLevelUp, out bool isGoalCompleted);
 
-        // --- Tính điểm theo Tetris Guideline ---
-        int basePoint = lines < BasePoints.Length ? BasePoints[lines] : BasePoints[BasePoints.Length - 1];
-        int rawPoint = basePoint * (Level + 1);
-        int finalPoint = Mathf.RoundToInt(rawPoint * comboMultiplier * b2bMultiplier);
+                if (shouldLevelUp)
+                {
+                    LevelUp();
+                }
 
-        Score += finalPoint;
-        OnScoreChanged?.Invoke(Score);
-
-        // Phát sự kiện floating score text
-        OnLineClearScore?.Invoke(finalPoint, clearedRows);
-
-        LinesCleared += lines;
-        if (LinesCleared >= Level * LinesPerLevel)
-        {
-            LevelUp();
+                if (isGoalCompleted)
+                {
+                    // Đạt mục tiêu (ví dụ xóa xong 40 lines ở chế độ Sprint)
+                    GameOver();
+                }
+            }
         }
     }
 
