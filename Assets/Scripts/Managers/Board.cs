@@ -84,6 +84,29 @@ public class Board : MonoBehaviour
         {
             _holdPieceManager = gameObject.AddComponent<HoldPieceManager>();
         }
+
+        if (_nextPieceTilemap == null)
+        {
+            var nextGrid = GameObject.Find("NextSlotGrid");
+            if (nextGrid != null) _nextPieceTilemap = nextGrid.GetComponentInChildren<Tilemap>();
+            if (_nextPieceTilemap == null)
+            {
+                var nextObj = GameObject.Find("NextSlotTilemap");
+                if (nextObj != null) _nextPieceTilemap = nextObj.GetComponent<Tilemap>();
+            }
+        }
+
+        if (_holdPieceTilemap == null)
+        {
+            var holdGrid = GameObject.Find("HoldSlotGrid");
+            if (holdGrid != null) _holdPieceTilemap = holdGrid.GetComponentInChildren<Tilemap>();
+            if (_holdPieceTilemap == null)
+            {
+                var holdObj = GameObject.Find("HoldPieceTilemap");
+                if (holdObj != null) _holdPieceTilemap = holdObj.GetComponent<Tilemap>();
+            }
+        }
+
         _holdPieceManager.Initialize(_holdPieceTilemap);
 
         // Khởi tạo thuật toán 7-Bag độc lập
@@ -431,16 +454,29 @@ public class Board : MonoBehaviour
     {
         if (_nextPieceTilemap == null) return;
         _nextPieceTilemap.ClearAllTiles();
-        DrawPieceOnTilemap(_nextPieceTilemap, data, new Vector3Int(-1, 1, 0));
+        DrawPieceOnTilemap(_nextPieceTilemap, data, Vector3Int.zero);
     }
 
     public static void DrawPieceOnTilemap(Tilemap tilemap, TetrominoData data, Vector3Int offset)
     {
-        if (tilemap == null || data.cells == null) return;
+        if (tilemap == null || data.cells == null || data.cells.Length == 0) return;
 
-        foreach (Vector2Int cell in data.cells)
+        int minX = int.MaxValue, maxX = int.MinValue;
+        int minY = int.MaxValue, maxY = int.MinValue;
+
+        for (int i = 0; i < data.cells.Length; i++)
         {
-            Vector3Int tilePos = new Vector3Int(cell.x * 2, cell.y * 2, 0) + offset;
+            minX = Mathf.Min(minX, data.cells[i].x);
+            maxX = Mathf.Max(maxX, data.cells[i].x);
+            minY = Mathf.Min(minY, data.cells[i].y);
+            maxY = Mathf.Max(maxY, data.cells[i].y);
+        }
+
+        Vector3Int centerOffset = new Vector3Int(-(minX + maxX) / 2, -(minY + maxY) / 2, 0) + offset;
+
+        for (int i = 0; i < data.cells.Length; i++)
+        {
+            Vector3Int tilePos = (Vector3Int)data.cells[i] + centerOffset;
             tilemap.SetTile(tilePos, data.tile);
         }
     }

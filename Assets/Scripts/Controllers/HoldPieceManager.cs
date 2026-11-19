@@ -17,7 +17,20 @@ public class HoldPieceManager : MonoBehaviour
 
     public void Initialize(Tilemap holdTilemap)
     {
-        _holdPieceTilemap = holdTilemap;
+        if (holdTilemap != null)
+        {
+            _holdPieceTilemap = holdTilemap;
+        }
+        else if (_holdPieceTilemap == null)
+        {
+            var holdGrid = GameObject.Find("HoldSlotGrid");
+            if (holdGrid != null) _holdPieceTilemap = holdGrid.GetComponentInChildren<Tilemap>();
+            if (_holdPieceTilemap == null)
+            {
+                var holdObj = GameObject.Find("HoldPieceTilemap");
+                if (holdObj != null) _holdPieceTilemap = holdObj.GetComponent<Tilemap>();
+            }
+        }
         Clear();
     }
 
@@ -73,13 +86,6 @@ public class HoldPieceManager : MonoBehaviour
 
         if (!_heldPieceData.HasValue || _heldPieceData.Value.cells == null) return;
 
-        TetrominoData data = _heldPieceData.Value;
-        Vector3Int startPosition = new Vector3Int(-1, 1, 0);
-
-        foreach (Vector2Int cell in data.cells)
-        {
-            Vector3Int tilePosition = new Vector3Int(cell.x * 2, cell.y * 2, 0) + startPosition;
-            _holdPieceTilemap.SetTile(tilePosition, data.tile);
-        }
+        Board.DrawPieceOnTilemap(_holdPieceTilemap, _heldPieceData.Value, Vector3Int.zero);
     }
 }
