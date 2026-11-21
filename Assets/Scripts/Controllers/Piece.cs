@@ -12,6 +12,7 @@ public class Piece : MonoBehaviour
 
     [Header("Timers & Delays")]
     [SerializeField] private float _stepDelay = 1.0f;
+    [SerializeField] private float _fastDropStepDelay = 0.08f;
     [SerializeField] private float _lockDelay = 0.5f;
 
     private Board _board;
@@ -20,9 +21,13 @@ public class Piece : MonoBehaviour
     private Vector3Int _position;
     private int _rotationIndex;
 
+    private float _normalStepDelay = 1.0f;
     private float _stepTime;
     private float _lockTime;
     private bool _isLocking;
+    private bool _isFastDropping;
+    private bool _isSimulationPaused;
+    private bool _isManagedByContainer;
 
     // PascalCase Properties (Chuẩn C#)
     public Board Board => _board;
@@ -33,7 +38,14 @@ public class Piece : MonoBehaviour
     public float StepDelay
     {
         get => _stepDelay;
-        set => _stepDelay = value;
+        set
+        {
+            _normalStepDelay = value;
+            if (!_isFastDropping)
+            {
+                _stepDelay = value;
+            }
+        }
     }
     public float LockDelay
     {
@@ -41,6 +53,16 @@ public class Piece : MonoBehaviour
         set => _lockDelay = value;
     }
     public bool IsLocking => _isLocking;
+    public bool IsSimulationPaused
+    {
+        get => _isSimulationPaused;
+        set => _isSimulationPaused = value;
+    }
+
+    public void SetManagedByContainer(bool isManaged)
+    {
+        _isManagedByContainer = isManaged;
+    }
 
     // Backward-compatibility aliases
     public Board board => _board;
@@ -91,9 +113,9 @@ public class Piece : MonoBehaviour
 
     private void Update()
     {
-        if (_board == null || _isLocking) return;
+        if (_board == null || _isLocking || _isSimulationPaused) return;
 
-        if (GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused))
+        if (!_isManagedByContainer && GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused))
             return;
 
         _lockTime += Time.deltaTime;
@@ -170,12 +192,17 @@ public class Piece : MonoBehaviour
 
     public void SetFastDrop(bool isFast)
     {
-        UpdateStepDelay(isFast ? 0.1f : 1.0f);
+        _isFastDropping = isFast;
+        _stepDelay = isFast ? Mathf.Min(_fastDropStepDelay, _normalStepDelay) : _normalStepDelay;
     }
 
     public void UpdateStepDelay(float newStepDelay)
     {
-        _stepDelay = newStepDelay;
+        _normalStepDelay = newStepDelay;
+        if (!_isFastDropping)
+        {
+            _stepDelay = _normalStepDelay;
+        }
     }
 
     public void TriggerPieceUpdated()

@@ -4,7 +4,8 @@ using UnityEngine;
 
 /// <summary>
 /// Quản lý vòng đời và trạng thái toàn cục của game: Start, Pause, Resume, Game Over và Game Mode (SRP).
-/// Các nghiệp vụ tính điểm và lưu trữ được ủy quyền cho ScoreManager (IScoreService).
+/// Hỗ trợ điều phối 1P/2P thông qua LayoutTransitionController & PlayfieldContainer (DIP),
+/// đồng thời giữ tương thích ngược nếu Scene chưa gắn PlayfieldContainer.
 /// </summary>
 public class GameManager : MonoBehaviour
 {
@@ -12,20 +13,43 @@ public class GameManager : MonoBehaviour
 
     [Header("Dependencies")]
     [SerializeField] private ScoreManager _scoreManager;
+    [SerializeField] private LayoutTransitionController _layoutTransitionController;
 
-    public int Score => _scoreManager != null ? _scoreManager.CurrentScore : 0;
+    private IScoreService ActivePrimaryScoreService =>
+        _layoutTransitionController != null && _layoutTransitionController.PlayerOneContainer != null
+            ? _layoutTransitionController.PlayerOneContainer.ScoreService
+            : _scoreManager;
+
+    public int Score => ActivePrimaryScoreService != null ? ActivePrimaryScoreService.CurrentScore : 0;
     public int Level { get; private set; } = 1;
     public int LinesCleared { get; private set; }
     public bool IsGameOver { get; private set; }
     public bool IsPaused { get; private set; }
-    public int ComboCount => _scoreManager != null ? _scoreManager.ComboCount : 0;
+    public int ComboCount => ActivePrimaryScoreService != null ? ActivePrimaryScoreService.ComboCount : 0;
     public GameMode CurrentGameMode { get; private set; } = GameMode.Marathon;
 
-    public List<int> ScoreHistory => _scoreManager != null 
-        ? new List<int>(_scoreManager.ScoreHistory) 
-        : new List<int> { 5000, 4000, 3000, 2000, 1000 };
+    public List<int> ScoreHistory
+    {
+        get
+        {
+            _scoreHistoryCache.Clear();
+            IScoreService service = ActivePrimaryScoreService;
+            if (service != null && service.ScoreHistory != null)
+            {
+                IReadOnlyList<int> source = service.ScoreHistory;
+                for (int i = 0; i < source.Count; i++)
+                {
+                    _scoreHistoryCache.Add(source[i]);
+                }
+            }
+            return _scoreHistoryCache;
+        }
+    }
 
+    private readonly List<int> _scoreHistoryCache = new List<int>(5);
     private IGameModeRule _currentGameModeRule;
+    private IScoreService _subscribedScoreService;
+    private PlayfieldContainer _subscribedPlayerOne;
 
     // Các sự kiện vòng đời
     public event Action OnGameStarted;
@@ -34,7 +58,7 @@ public class GameManager : MonoBehaviour
     public event Action<int> OnLevelChanged;
     public event Action OnShowStartMenu;
 
-    // Chuyển tiếp các sự kiện từ ScoreService để giữ tương thích ngược
+    // Chuyển tiếp các sự kiện từ ScoreService để giữ tương thích ngược với UIManager
     public event Action<int> OnScoreChanged;
     public event Action<int> OnComboUpdated;
     public event Action OnBackToBack;
@@ -62,12 +86,14 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        // Đăng ký chuyển tiếp sự kiện từ ScoreManager
-        _scoreManager.OnScoreChanged += (score) => OnScoreChanged?.Invoke(score);
-        _scoreManager.OnComboUpdated += (combo) => OnComboUpdated?.Invoke(combo);
-        _scoreManager.OnBackToBack += () => OnBackToBack?.Invoke();
-        _scoreManager.OnLineClearScore += (pts, rows) => OnLineClearScore?.Invoke(pts, rows);
-        _scoreManager.OnScoreHistoryUpdated += (hist) => OnScoreHistoryUpdated?.Invoke(new List<int>(hist));
+        if (_layoutTransitionController != null && _layoutTransitionController.PlayerOneContainer != null)
+        {
+            BindPrimaryPlayfield(_layoutTransitionController.PlayerOneContainer);
+        }
+        else
+        {
+            BindScoreService(_scoreManager);
+        }
     }
 
     private void Start()
@@ -81,10 +107,88 @@ public class GameManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        UnbindPrimaryPlayfield();
+        UnbindScoreService();
+
         if (InputManager.Instance != null)
         {
             InputManager.Instance.OnPause -= HandlePauseInput;
         }
+    }
+
+    private void BindPrimaryPlayfield(PlayfieldContainer container)
+    {
+        if (container == null || _subscribedPlayerOne == container) return;
+
+        UnbindPrimaryPlayfield();
+        _subscribedPlayerOne = container;
+        _subscribedPlayerOne.Initialize(playerId: 1);
+
+        _subscribedPlayerOne.OnLevelChanged += HandlePrimaryLevelChanged;
+        _subscribedPlayerOne.OnLinesTotalChanged += HandlePrimaryLinesChanged;
+        _subscribedPlayerOne.OnPlayerDefeated += HandlePrimaryPlayerEnded;
+        _subscribedPlayerOne.OnGoalCompleted += HandlePrimaryPlayerEnded;
+
+        BindScoreService(_subscribedPlayerOne.ScoreService);
+    }
+
+    private void UnbindPrimaryPlayfield()
+    {
+        if (_subscribedPlayerOne == null) return;
+
+        _subscribedPlayerOne.OnLevelChanged -= HandlePrimaryLevelChanged;
+        _subscribedPlayerOne.OnLinesTotalChanged -= HandlePrimaryLinesChanged;
+        _subscribedPlayerOne.OnPlayerDefeated -= HandlePrimaryPlayerEnded;
+        _subscribedPlayerOne.OnGoalCompleted -= HandlePrimaryPlayerEnded;
+        _subscribedPlayerOne = null;
+    }
+
+    private void BindScoreService(IScoreService service)
+    {
+        if (service == null || _subscribedScoreService == service) return;
+
+        UnbindScoreService();
+        _subscribedScoreService = service;
+
+        _subscribedScoreService.OnScoreChanged += ForwardScoreChanged;
+        _subscribedScoreService.OnComboUpdated += ForwardComboUpdated;
+        _subscribedScoreService.OnBackToBack += ForwardBackToBack;
+        _subscribedScoreService.OnLineClearScore += ForwardLineClearScore;
+        _subscribedScoreService.OnScoreHistoryUpdated += ForwardScoreHistoryUpdated;
+    }
+
+    private void UnbindScoreService()
+    {
+        if (_subscribedScoreService == null) return;
+
+        _subscribedScoreService.OnScoreChanged -= ForwardScoreChanged;
+        _subscribedScoreService.OnComboUpdated -= ForwardComboUpdated;
+        _subscribedScoreService.OnBackToBack -= ForwardBackToBack;
+        _subscribedScoreService.OnLineClearScore -= ForwardLineClearScore;
+        _subscribedScoreService.OnScoreHistoryUpdated -= ForwardScoreHistoryUpdated;
+        _subscribedScoreService = null;
+    }
+
+    private void ForwardScoreChanged(int score) => OnScoreChanged?.Invoke(score);
+    private void ForwardComboUpdated(int combo) => OnComboUpdated?.Invoke(combo);
+    private void ForwardBackToBack() => OnBackToBack?.Invoke();
+    private void ForwardLineClearScore(int pts, List<int> rows) => OnLineClearScore?.Invoke(pts, rows);
+    private void ForwardScoreHistoryUpdated(List<int> history) => OnScoreHistoryUpdated?.Invoke(history);
+
+    private void HandlePrimaryLevelChanged(PlayfieldContainer container, int newLevel)
+    {
+        Level = newLevel;
+        OnLevelChanged?.Invoke(Level);
+    }
+
+    private void HandlePrimaryLinesChanged(PlayfieldContainer container, int totalLines)
+    {
+        LinesCleared = totalLines;
+    }
+
+    private void HandlePrimaryPlayerEnded(PlayfieldContainer container)
+    {
+        GameOver();
     }
 
     private void HandlePauseInput()
@@ -101,16 +205,25 @@ public class GameManager : MonoBehaviour
 
     public void ShowStartMenu()
     {
-        OnShowStartMenu?.Invoke();
-        if (_scoreManager != null)
+        IsPaused = false;
+        Time.timeScale = 1f;
+
+        if (_layoutTransitionController != null)
         {
-            OnScoreHistoryUpdated?.Invoke(new List<int>(_scoreManager.ScoreHistory));
+            _layoutTransitionController.SetSoloLayout(instant: true);
+            if (_layoutTransitionController.PlayerOneContainer != null)
+            {
+                _layoutTransitionController.PlayerOneContainer.ClearVisuals();
+            }
         }
+
+        OnShowStartMenu?.Invoke();
+        OnScoreHistoryUpdated?.Invoke(ScoreHistory);
     }
 
     public void StartGame()
     {
-        StartGame(GameMode.Marathon);
+        StartGame(CurrentGameMode);
     }
 
     public void StartGame(GameMode mode)
@@ -120,26 +233,40 @@ public class GameManager : MonoBehaviour
         Level = 1;
         LinesCleared = 0;
         IsPaused = false;
-        Time.timeScale = 1;
+        Time.timeScale = 1f;
 
-        // Khởi tạo quy tắc cho GameMode tương ứng (Strategy Pattern - OCP)
-        switch (mode)
+        _currentGameModeRule = CreateGameModeRule(mode);
+
+        if (_layoutTransitionController != null && _layoutTransitionController.PlayerOneContainer != null)
         {
-            case GameMode.Sprint:
-                _currentGameModeRule = new SprintModeRule(40);
-                break;
-            default:
-                _currentGameModeRule = new MarathonModeRule(10);
-                break;
-        }
-        _currentGameModeRule.OnGameStarted();
+            bool isVersusMode = mode == GameMode.VersusAI || mode == GameMode.OnlineMultiplayer;
+            if (isVersusMode)
+            {
+                _layoutTransitionController.SetVersusLayout(instant: false);
+            }
+            else
+            {
+                _layoutTransitionController.SetSoloLayout(instant: false);
+            }
 
-        if (_scoreManager != null)
+            BindPrimaryPlayfield(_layoutTransitionController.PlayerOneContainer);
+            _layoutTransitionController.PlayerOneContainer.StartMatch(_currentGameModeRule);
+
+            if (isVersusMode && _layoutTransitionController.PlayerTwoContainer != null)
+            {
+                _layoutTransitionController.PlayerTwoContainer.StartMatch(CreateGameModeRule(mode));
+            }
+        }
+        else
         {
-            _scoreManager.ResetScore();
+            _currentGameModeRule.OnGameStarted();
+            if (_scoreManager != null)
+            {
+                _scoreManager.ResetScore();
+            }
+            OnLevelChanged?.Invoke(Level);
         }
 
-        OnLevelChanged?.Invoke(Level);
         OnGameStarted?.Invoke();
     }
 
@@ -148,7 +275,19 @@ public class GameManager : MonoBehaviour
         if (IsGameOver) return;
 
         IsGameOver = true;
-        if (_scoreManager != null)
+
+        if (_layoutTransitionController != null)
+        {
+            if (_layoutTransitionController.PlayerOneContainer != null)
+            {
+                _layoutTransitionController.PlayerOneContainer.StopMatch(saveHighScore: true);
+            }
+            if (_layoutTransitionController.PlayerTwoContainer != null && _layoutTransitionController.PlayerTwoContainer.gameObject.activeSelf)
+            {
+                _layoutTransitionController.PlayerTwoContainer.StopMatch(saveHighScore: false);
+            }
+        }
+        else if (_scoreManager != null)
         {
             _scoreManager.SaveCurrentScore();
         }
@@ -160,14 +299,16 @@ public class GameManager : MonoBehaviour
     {
         if (IsGameOver) return;
         IsPaused = true;
-        Time.timeScale = 0;
+        Time.timeScale = 0f;
+        ApplyPauseToContainers(true);
         OnPauseToggled?.Invoke(IsPaused);
     }
 
     public void ResumeGame()
     {
         IsPaused = false;
-        Time.timeScale = 1;
+        Time.timeScale = 1f;
+        ApplyPauseToContainers(false);
         OnPauseToggled?.Invoke(IsPaused);
     }
 
@@ -175,10 +316,9 @@ public class GameManager : MonoBehaviour
     {
         if (IsGameOver) return;
 
-        int pointsEarned = 0;
         if (_scoreManager != null)
         {
-            pointsEarned = _scoreManager.AddLineClearScore(lines, Level, clearedRows);
+            _scoreManager.AddLineClearScore(lines, Level, clearedRows);
         }
 
         if (lines > 0)
@@ -196,10 +336,34 @@ public class GameManager : MonoBehaviour
 
                 if (isGoalCompleted)
                 {
-                    // Đạt mục tiêu (ví dụ xóa xong 40 lines ở chế độ Sprint)
                     GameOver();
                 }
             }
+        }
+    }
+
+    private void ApplyPauseToContainers(bool isPaused)
+    {
+        if (_layoutTransitionController == null) return;
+
+        if (_layoutTransitionController.PlayerOneContainer != null)
+        {
+            _layoutTransitionController.PlayerOneContainer.SetPaused(isPaused);
+        }
+        if (_layoutTransitionController.PlayerTwoContainer != null && _layoutTransitionController.PlayerTwoContainer.gameObject.activeSelf)
+        {
+            _layoutTransitionController.PlayerTwoContainer.SetPaused(isPaused);
+        }
+    }
+
+    private IGameModeRule CreateGameModeRule(GameMode mode)
+    {
+        switch (mode)
+        {
+            case GameMode.Sprint:
+                return new SprintModeRule(40);
+            default:
+                return new MarathonModeRule(10);
         }
     }
 

@@ -1,13 +1,14 @@
 using UnityEngine;
 
 /// <summary>
-/// Xử lý tín hiệu điều khiển từ InputManager và các cơ chế lặp phím DAS/ARR (Controller).
+/// Xử lý tín hiệu điều khiển từ InputManager và các cơ chế lặp phím DAS/ARR, Hold và Activate Skill (Controller).
 /// </summary>
 [RequireComponent(typeof(Piece))]
 public class PlayerInputController : MonoBehaviour
 {
     [Header("Configuration")]
     [SerializeField] private TetrisGameSettingsSO _gameSettings;
+    [SerializeField] private SkillController _skillController;
 
     [Header("Movement Settings (Fallback nếu không có Settings SO)")]
     [Tooltip("Thời gian trễ trước khi khối bắt đầu tự động di chuyển liên tục (DAS).")]
@@ -33,6 +34,10 @@ public class PlayerInputController : MonoBehaviour
     private void Awake()
     {
         _piece = GetComponent<Piece>();
+        if (_skillController == null)
+        {
+            _skillController = GetComponentInParent<SkillController>();
+        }
     }
 
     private void OnEnable()
@@ -52,6 +57,7 @@ public class PlayerInputController : MonoBehaviour
             _inputManager.OnHold += OnHold;
             _inputManager.OnSoftDropStart += OnSoftDropStart;
             _inputManager.OnSoftDropCancel += OnSoftDropCancel;
+            _inputManager.OnActivateSkill += OnActivateSkill;
         }
     }
 
@@ -66,6 +72,7 @@ public class PlayerInputController : MonoBehaviour
             _inputManager.OnHold -= OnHold;
             _inputManager.OnSoftDropStart -= OnSoftDropStart;
             _inputManager.OnSoftDropCancel -= OnSoftDropCancel;
+            _inputManager.OnActivateSkill -= OnActivateSkill;
         }
     }
 
@@ -74,9 +81,15 @@ public class PlayerInputController : MonoBehaviour
         _gameSettings = settings;
     }
 
+    public void InitializeSkillController(SkillController skillController)
+    {
+        _skillController = skillController;
+    }
+
     private bool IsInputAllowed()
     {
         if (_piece == null || _piece.Board == null) return false;
+        if (_piece.IsSimulationPaused) return false;
         if (GameManager.Instance != null && (GameManager.Instance.IsGameOver || GameManager.Instance.IsPaused)) return false;
         if (_piece.Board.IsAnimatingLineClear) return false;
         return true;
@@ -123,7 +136,6 @@ public class PlayerInputController : MonoBehaviour
     {
         if (!IsInputAllowed()) return;
 
-        // Trục X (Trái / Phải)
         if (direction.x != 0 && direction.x != _currentInput.x)
         {
             _currentInput.x = direction.x;
@@ -133,7 +145,6 @@ public class PlayerInputController : MonoBehaviour
             _piece.MovePiece(_currentInput.x < -0.5f ? Vector2Int.left : Vector2Int.right);
         }
 
-        // Trục Y (Xuống)
         if (direction.y < -0.5f && direction.y != _currentInput.y)
         {
             _currentInput.y = direction.y;
@@ -179,5 +190,11 @@ public class PlayerInputController : MonoBehaviour
     private void OnSoftDropCancel()
     {
         if (_piece != null) _piece.SetFastDrop(false);
+    }
+
+    private void OnActivateSkill()
+    {
+        if (!IsInputAllowed() || _skillController == null) return;
+        _skillController.TryActivateSkill();
     }
 }

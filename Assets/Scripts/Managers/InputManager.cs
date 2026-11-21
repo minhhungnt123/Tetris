@@ -2,6 +2,9 @@ using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+/// <summary>
+/// Quản lý tín hiệu đầu vào từ Unity Input System và phát sự kiện cho các Controller (SRP).
+/// </summary>
 public class InputManager : MonoBehaviour
 {
     public static InputManager Instance { get; private set; }
@@ -13,6 +16,7 @@ public class InputManager : MonoBehaviour
     public InputActionReference holdAction;
     public InputActionReference softDropAction;
     public InputActionReference pauseAction;
+    public InputActionReference activateSkillAction;
 
     public event Action<Vector2> OnMove;
     public event Action<Vector2> OnMoveCanceled;
@@ -22,6 +26,9 @@ public class InputManager : MonoBehaviour
     public event Action OnSoftDropStart;
     public event Action OnSoftDropCancel;
     public event Action OnPause;
+    public event Action OnActivateSkill;
+
+    private InputAction _resolvedActivateSkillAction;
 
     private void Awake()
     {
@@ -69,6 +76,13 @@ public class InputManager : MonoBehaviour
             pauseAction.action.performed += PausePerformed;
             pauseAction.action.Enable();
         }
+
+        _resolvedActivateSkillAction = ResolveActivateSkillAction();
+        if (_resolvedActivateSkillAction != null)
+        {
+            _resolvedActivateSkillAction.performed += ActivateSkillPerformed;
+            _resolvedActivateSkillAction.Enable();
+        }
     }
 
     private void OnDisable()
@@ -105,6 +119,28 @@ public class InputManager : MonoBehaviour
             pauseAction.action.performed -= PausePerformed;
             pauseAction.action.Disable();
         }
+        if (_resolvedActivateSkillAction != null)
+        {
+            _resolvedActivateSkillAction.performed -= ActivateSkillPerformed;
+            _resolvedActivateSkillAction.Disable();
+            _resolvedActivateSkillAction = null;
+        }
+    }
+
+    private InputAction ResolveActivateSkillAction()
+    {
+        if (activateSkillAction != null && activateSkillAction.action != null)
+        {
+            return activateSkillAction.action;
+        }
+
+        // Tự động tìm action "Input/ActivateSkill" từ cùng InputActionAsset nếu chưa kéo trong Inspector
+        if (moveAction != null && moveAction.asset != null)
+        {
+            return moveAction.asset.FindAction("Input/ActivateSkill", throwIfNotFound: false);
+        }
+
+        return null;
     }
 
     private void MovePerformed(InputAction.CallbackContext context)
@@ -121,7 +157,6 @@ public class InputManager : MonoBehaviour
 
     private void RotatePerformed(InputAction.CallbackContext context)
     {
-        Debug.Log("InputManager: RotatePerformed");
         OnRotate?.Invoke();
     }
 
@@ -148,5 +183,10 @@ public class InputManager : MonoBehaviour
     private void PausePerformed(InputAction.CallbackContext context)
     {
         OnPause?.Invoke();
+    }
+
+    private void ActivateSkillPerformed(InputAction.CallbackContext context)
+    {
+        OnActivateSkill?.Invoke();
     }
 }

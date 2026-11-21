@@ -1,10 +1,12 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
 /// <summary>
-/// Quản lý ma trận ô cờ (Grid/Tilemap), kiểm tra va chạm, xóa dòng và điều phối vòng đời khối gạch (SRP).
+/// Quản lý ma trận ô cờ (Grid/Tilemap), kiểm tra va chạm, xóa dòng, tích hợp Skill Effect và vòng đời khối gạch (SRP).
+/// Đã loại bỏ GameObject.Find, hỗ trợ 4 khối Next Queue và tối ưu Coroutine/Buffer để giảm thiểu GC (Zero-GC).
 /// </summary>
 public class Board : MonoBehaviour
 {
@@ -19,20 +21,52 @@ public class Board : MonoBehaviour
     [SerializeField] private Tilemap _nextPieceTilemap;
     [SerializeField] private Tilemap _holdPieceTilemap;
 
+    [Header("Next Queue Settings")]
+    [SerializeField] private int _nextQueuePreviewCount = 4;
+    [SerializeField] private int _nextPieceVerticalSpacing = 4;
+
     [Header("Line Clear Animation Settings")]
     [SerializeField] private float _lineClearFlashDuration = 0.3f;
     [SerializeField] private int _lineClearFlashCount = 3;
 
+    // Events theo nguyên lý DIP để PlayfieldContainer lắng nghe mà không phụ thuộc Singleton
+    public event Action<int, List<int>> OnLinesCleared;
+    public event Action OnTopOut;
+    public event Action<IReadOnlyList<TetrominoData>> OnNextQueueUpdated;
+    public event Action OnBoardCleared;
+    public event Action OnActiveSkillExecuted;
+
     private Piece _activePiece;
     private HoldPieceManager _holdPieceManager;
     private IPieceRandomizer _pieceRandomizer;
-    private TetrominoData _nextTetromino;
     private Coroutine _lockCoroutine;
+
+    private bool _isManagedByContainer;
+    private bool _isSubscribedToGameManager;
+    private bool _isBoardOver;
+
+    // Trạng thái Skill đang gắn trên khối gạch hiện tại
+    private ISkillEffect _activeSkillEffect;
+    private TileBase _activeSkillOverrideTile;
+    private int _lastSkillLinesCleared;
+    private Action<int> _cachedOnSkillLinesCleared;
+
+    // Reusable buffers & cached WaitForSeconds giúp giảm tối đa GC khi xóa dòng / thực thi Skill
+    private readonly List<TetrominoData> _nextQueueBuffer = new List<TetrominoData>(4);
+    private readonly List<int> _clearedRowsBuffer = new List<int>(4);
+    private readonly List<int> _skillAffectedRowsBuffer = new List<int>(8);
+    private readonly List<int> _sortedRowsBuffer = new List<int>(8);
+    private readonly List<Vector3Int> _flashPositionsBuffer = new List<Vector3Int>(40);
+    private readonly List<TileBase> _flashTilesBuffer = new List<TileBase>(40);
+    private WaitForSeconds _cachedFlashWait;
+    private float _cachedFlashInterval = -1f;
 
     // PascalCase Properties (Chuẩn C#)
     public Tilemap Tilemap => _tilemap;
     public Piece ActivePiece => _activePiece;
+    public HoldPieceManager HoldManager => _holdPieceManager;
     public bool IsAnimatingLineClear { get; private set; }
+    public bool HasActiveSkillModifier => _activeSkillEffect != null;
     public Vector2Int BoardSize => _gameSettings != null ? _gameSettings.BoardSize : new Vector2Int(10, 20);
     public Vector3Int SpawnPosition => _gameSettings != null ? _gameSettings.SpawnPosition : new Vector3Int(-1, 8, 0);
 
@@ -72,46 +106,23 @@ public class Board : MonoBehaviour
 
     private void Awake()
     {
+        _cachedOnSkillLinesCleared = HandleSkillLinesClearedCallback;
+
         _activePiece = GetComponentInChildren<Piece>();
         if (_tilemap == null)
         {
             _tilemap = GetComponentInChildren<Tilemap>();
         }
 
-        // Tách biệt Hold Manager
         _holdPieceManager = GetComponent<HoldPieceManager>();
         if (_holdPieceManager == null)
         {
             _holdPieceManager = gameObject.AddComponent<HoldPieceManager>();
         }
 
-        if (_nextPieceTilemap == null)
-        {
-            var nextGrid = GameObject.Find("NextSlotGrid");
-            if (nextGrid != null) _nextPieceTilemap = nextGrid.GetComponentInChildren<Tilemap>();
-            if (_nextPieceTilemap == null)
-            {
-                var nextObj = GameObject.Find("NextSlotTilemap");
-                if (nextObj != null) _nextPieceTilemap = nextObj.GetComponent<Tilemap>();
-            }
-        }
-
-        if (_holdPieceTilemap == null)
-        {
-            var holdGrid = GameObject.Find("HoldSlotGrid");
-            if (holdGrid != null) _holdPieceTilemap = holdGrid.GetComponentInChildren<Tilemap>();
-            if (_holdPieceTilemap == null)
-            {
-                var holdObj = GameObject.Find("HoldPieceTilemap");
-                if (holdObj != null) _holdPieceTilemap = holdObj.GetComponent<Tilemap>();
-            }
-        }
-
         _holdPieceManager.Initialize(_holdPieceTilemap);
 
-        // Khởi tạo thuật toán 7-Bag độc lập
         _pieceRandomizer = new SevenBagRandomizer();
-
         if (tetrominoes != null)
         {
             for (int i = 0; i < tetrominoes.Length; i++)
@@ -121,21 +132,14 @@ public class Board : MonoBehaviour
             _pieceRandomizer.Initialize(tetrominoes);
         }
 
-        if (_gameSettings != null)
-        {
-            _lineClearFlashDuration = _gameSettings.LineClearFlashDuration;
-            _lineClearFlashCount = _gameSettings.LineClearFlashCount;
-        }
+        ApplySettings(_gameSettings);
     }
 
     private void Start()
     {
-        if (GameManager.Instance != null)
+        if (!_isManagedByContainer)
         {
-            GameManager.Instance.OnGameStarted += ResetGame;
-            GameManager.Instance.OnGameOver += HandleGameOver;
-            GameManager.Instance.OnLevelChanged += HandleLevelChanged;
-            GameManager.Instance.OnShowStartMenu += ClearAll;
+            SubscribeToGameManager();
         }
 
         if (_activePiece != null)
@@ -146,13 +150,7 @@ public class Board : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.OnGameStarted -= ResetGame;
-            GameManager.Instance.OnGameOver -= HandleGameOver;
-            GameManager.Instance.OnLevelChanged -= HandleLevelChanged;
-            GameManager.Instance.OnShowStartMenu -= ClearAll;
-        }
+        UnsubscribeFromGameManager();
 
         if (_activePiece != null)
         {
@@ -160,62 +158,152 @@ public class Board : MonoBehaviour
         }
     }
 
-    public void InitializeSettings(TetrisGameSettingsSO settings)
+    /// <summary>
+    /// Tiêm toàn bộ cấu hình và Tilemap phụ thuộc từ PlayfieldContainer (DIP).
+    /// </summary>
+    public void Initialize(
+        TetrisGameSettingsSO settings,
+        Tilemap nextPieceTilemap,
+        Tilemap holdPieceTilemap,
+        int nextQueuePreviewCount = 4)
     {
-        _gameSettings = settings;
-        if (settings != null)
+        SetManagedByContainer(true);
+
+        if (nextPieceTilemap != null) _nextPieceTilemap = nextPieceTilemap;
+        if (holdPieceTilemap != null) _holdPieceTilemap = holdPieceTilemap;
+        _nextQueuePreviewCount = Mathf.Max(1, nextQueuePreviewCount);
+
+        ApplySettings(settings);
+
+        if (_holdPieceManager != null)
         {
-            _lineClearFlashDuration = settings.LineClearFlashDuration;
-            _lineClearFlashCount = settings.LineClearFlashCount;
+            _holdPieceManager.Initialize(_holdPieceTilemap);
+        }
+
+        if (_activePiece != null)
+        {
+            _activePiece.SetManagedByContainer(true);
         }
     }
 
-    private void ResetGame()
+    public void SetManagedByContainer(bool isManaged)
     {
+        _isManagedByContainer = isManaged;
+        if (isManaged)
+        {
+            UnsubscribeFromGameManager();
+            if (_activePiece != null)
+            {
+                _activePiece.SetManagedByContainer(true);
+            }
+        }
+    }
+
+    public void InitializeSettings(TetrisGameSettingsSO settings)
+    {
+        ApplySettings(settings);
+    }
+
+    public void SetSimulationPaused(bool isPaused)
+    {
+        if (_activePiece != null)
+        {
+            _activePiece.IsSimulationPaused = isPaused;
+        }
+    }
+
+    /// <summary>
+    /// Gắn hiệu ứng Skill lên khối gạch đang rơi và cập nhật ngay diện mạo Special Block.
+    /// </summary>
+    public void SetActiveSkillModifier(ISkillEffect skillEffect, TileBase overrideTile = null)
+    {
+        _activeSkillEffect = skillEffect;
+        _activeSkillOverrideTile = overrideTile;
+
+        if (_activePiece != null && !_activePiece.IsLocking && !_isBoardOver)
+        {
+            Set(_activePiece);
+            _activePiece.TriggerPieceUpdated();
+        }
+    }
+
+    public void ClearActiveSkillModifier()
+    {
+        _activeSkillEffect = null;
+        _activeSkillOverrideTile = null;
+    }
+
+    public void ResetBoard()
+    {
+        if (_lockCoroutine != null)
+        {
+            StopCoroutine(_lockCoroutine);
+            _lockCoroutine = null;
+        }
+
+        IsAnimatingLineClear = false;
+        _isBoardOver = false;
+        ClearActiveSkillModifier();
         ClearAll();
 
         if (_activePiece != null)
         {
-            _activePiece.StepDelay = _gameSettings != null ? _gameSettings.BaseStepDelay : 1.0f;
+            float baseDelay = _gameSettings != null ? _gameSettings.BaseStepDelay : 1.0f;
+            _activePiece.UpdateStepDelay(baseDelay);
+            _activePiece.SetFastDrop(false);
             _activePiece.LockDelay = _gameSettings != null ? _gameSettings.LockDelay : 0.5f;
+            _activePiece.IsSimulationPaused = false;
         }
 
         _pieceRandomizer.Reset();
         if (_holdPieceManager != null) _holdPieceManager.Clear();
 
-        _nextTetromino = _pieceRandomizer.GetNextPiece();
         SpawnPiece();
     }
 
-    private void HandleGameOver()
+    public void StopBoard()
     {
+        _isBoardOver = true;
+        if (_lockCoroutine != null)
+        {
+            StopCoroutine(_lockCoroutine);
+            _lockCoroutine = null;
+        }
+
+        IsAnimatingLineClear = false;
+        ClearActiveSkillModifier();
+        SetSimulationPaused(true);
         ClearAll();
     }
 
-    private void ClearAll()
+    public void ClearAll()
     {
         if (_tilemap != null) _tilemap.ClearAllTiles();
         if (_nextPieceTilemap != null) _nextPieceTilemap.ClearAllTiles();
         if (_holdPieceManager != null) _holdPieceManager.Clear();
+        OnBoardCleared?.Invoke();
     }
 
-    private void HandleLevelChanged(int level)
+    public void ApplyLevelSpeed(int level)
     {
-        if (_activePiece != null)
-        {
-            float newDelay = _gameSettings != null 
-                ? _gameSettings.GetStepDelayForLevel(level) 
-                : Mathf.Max(0.1f, 1.0f * Mathf.Pow(0.9f, level - 1));
+        if (_activePiece == null) return;
 
-            _activePiece.UpdateStepDelay(newDelay);
-        }
+        float newDelay = _gameSettings != null
+            ? _gameSettings.GetStepDelayForLevel(level)
+            : Mathf.Max(0.1f, 1.0f * Mathf.Pow(0.9f, level - 1));
+
+        _activePiece.UpdateStepDelay(newDelay);
     }
 
     public void SpawnPiece(TetrominoData? specificData = null)
     {
-        if (GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
+        if (_isBoardOver) return;
+        if (!_isManagedByContainer && GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
 
-        TetrominoData data = specificData ?? _nextTetromino;
+        TetrominoData data = specificData.HasValue
+            ? specificData.Value
+            : _pieceRandomizer.GetNextPiece();
+
         _activePiece.Initialize(this, SpawnPosition, data);
 
         if (IsValidPosition(_activePiece, SpawnPosition))
@@ -225,25 +313,25 @@ public class Board : MonoBehaviour
         }
         else
         {
-            if (GameManager.Instance != null)
+            _isBoardOver = true;
+            if (_isManagedByContainer)
+            {
+                OnTopOut?.Invoke();
+            }
+            else if (GameManager.Instance != null)
             {
                 GameManager.Instance.GameOver();
             }
             return;
         }
 
-        if (!specificData.HasValue)
-        {
-            _nextTetromino = _pieceRandomizer.GetNextPiece();
-        }
-
-        DisplayNextPiece(_nextTetromino);
+        RefreshNextQueueDisplay();
         if (_holdPieceManager != null) _holdPieceManager.ResetTurnHoldFlag();
     }
 
     public void HoldPiece()
     {
-        if (_holdPieceManager == null || _activePiece == null) return;
+        if (_holdPieceManager == null || _activePiece == null || _isBoardOver) return;
 
         Clear(_activePiece);
 
@@ -255,20 +343,113 @@ public class Board : MonoBehaviour
             }
             else
             {
-                _nextTetromino = _pieceRandomizer.GetNextPiece();
                 SpawnPiece();
             }
         }
         else
         {
-            // Nếu không hold được thì đặt lại khối cũ
             Set(_activePiece);
         }
     }
 
     /// <summary>
-    /// Xử lý sự kiện khi Piece khóa vào bảng: đặt tile, chạy hoạt ảnh xóa dòng và spawn khối tiếp theo.
+    /// Xóa danh sách các hàng bất kỳ (không cần đầy) và dồn gạch phía trên rơi xuống đúng thứ tự (Zero-GC).
+    /// Dùng chung cho các kỹ năng như Row Detonator, Bottom Purge...
     /// </summary>
+    public void CollapseRows(List<int> rowsToClear)
+    {
+        if (_tilemap == null || rowsToClear == null || rowsToClear.Count == 0) return;
+
+        RectInt bounds = Bounds;
+        _sortedRowsBuffer.Clear();
+
+        for (int i = 0; i < rowsToClear.Count; i++)
+        {
+            int row = rowsToClear[i];
+            if (row < bounds.yMin || row >= bounds.yMax) continue;
+
+            bool exists = false;
+            for (int j = 0; j < _sortedRowsBuffer.Count; j++)
+            {
+                if (_sortedRowsBuffer[j] == row)
+                {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) _sortedRowsBuffer.Add(row);
+        }
+
+        // Sắp xếp giảm dần (Insertion Sort tại chỗ - 0 bytes GC) để xóa từ trên xuống dưới không lệch chỉ số hàng
+        for (int i = 1; i < _sortedRowsBuffer.Count; i++)
+        {
+            int key = _sortedRowsBuffer[i];
+            int j = i - 1;
+            while (j >= 0 && _sortedRowsBuffer[j] < key)
+            {
+                _sortedRowsBuffer[j + 1] = _sortedRowsBuffer[j];
+                j--;
+            }
+            _sortedRowsBuffer[j + 1] = key;
+        }
+
+        for (int i = 0; i < _sortedRowsBuffer.Count; i++)
+        {
+            LineClear(_sortedRowsBuffer[i]);
+        }
+    }
+
+    private void HandleSkillLinesClearedCallback(int linesCleared)
+    {
+        _lastSkillLinesCleared = linesCleared;
+    }
+
+    private void ApplySettings(TetrisGameSettingsSO settings)
+    {
+        _gameSettings = settings;
+        if (settings != null)
+        {
+            _lineClearFlashDuration = settings.LineClearFlashDuration;
+            _lineClearFlashCount = settings.LineClearFlashCount;
+        }
+        UpdateCachedFlashWait();
+    }
+
+    private void UpdateCachedFlashWait()
+    {
+        int flashCount = Mathf.Max(1, _lineClearFlashCount);
+        float interval = _lineClearFlashDuration / (flashCount * 2f);
+        if (!Mathf.Approximately(interval, _cachedFlashInterval) || _cachedFlashWait == null)
+        {
+            _cachedFlashInterval = interval;
+            _cachedFlashWait = new WaitForSeconds(interval);
+        }
+    }
+
+    private void SubscribeToGameManager()
+    {
+        if (GameManager.Instance != null && !_isSubscribedToGameManager)
+        {
+            GameManager.Instance.OnGameStarted += ResetBoard;
+            GameManager.Instance.OnGameOver += StopBoard;
+            GameManager.Instance.OnLevelChanged += ApplyLevelSpeed;
+            GameManager.Instance.OnShowStartMenu += ClearAll;
+            _isSubscribedToGameManager = true;
+        }
+    }
+
+    private void UnsubscribeFromGameManager()
+    {
+        if (GameManager.Instance != null && _isSubscribedToGameManager)
+        {
+            GameManager.Instance.OnGameStarted -= ResetBoard;
+            GameManager.Instance.OnGameOver -= StopBoard;
+            GameManager.Instance.OnLevelChanged -= ApplyLevelSpeed;
+            GameManager.Instance.OnShowStartMenu -= ClearAll;
+            _isSubscribedToGameManager = false;
+        }
+    }
+
     private void HandlePieceLocked(Piece piece)
     {
         if (_lockCoroutine != null) StopCoroutine(_lockCoroutine);
@@ -278,8 +459,45 @@ public class Board : MonoBehaviour
     private IEnumerator LockSequenceRoutine(Piece piece)
     {
         Set(piece);
-        yield return StartCoroutine(ClearLinesAnimated());
-        SpawnPiece();
+
+        if (_activeSkillEffect != null)
+        {
+            IsAnimatingLineClear = true;
+            ISkillEffect effectToExecute = _activeSkillEffect;
+            _lastSkillLinesCleared = 0;
+            _skillAffectedRowsBuffer.Clear();
+
+            yield return StartCoroutine(effectToExecute.ExecuteOnLock(
+                this,
+                piece,
+                _skillAffectedRowsBuffer,
+                _cachedOnSkillLinesCleared));
+
+            ClearActiveSkillModifier();
+            OnActiveSkillExecuted?.Invoke();
+
+            if (_lastSkillLinesCleared > 0)
+            {
+                NotifyLinesCleared(_lastSkillLinesCleared, _skillAffectedRowsBuffer);
+            }
+
+            IsAnimatingLineClear = false;
+
+            // Nếu Skill không tự xóa dòng (VD: Nova Bomb), vẫn kiểm tra xóa dòng bình thường nếu có hàng đầy
+            if (_lastSkillLinesCleared == 0 && !_isBoardOver)
+            {
+                yield return StartCoroutine(ClearLinesAnimated());
+            }
+        }
+        else
+        {
+            yield return StartCoroutine(ClearLinesAnimated());
+        }
+
+        if (!_isBoardOver)
+        {
+            SpawnPiece();
+        }
         _lockCoroutine = null;
     }
 
@@ -287,10 +505,12 @@ public class Board : MonoBehaviour
     {
         if (_tilemap == null || piece == null || piece.Cells == null) return;
 
+        TileBase tileToUse = _activeSkillOverrideTile != null ? _activeSkillOverrideTile : piece.Data.tile;
+
         for (int i = 0; i < piece.Cells.Length; i++)
         {
             Vector3Int tilePosition = piece.Cells[i] + piece.Position;
-            _tilemap.SetTile(tilePosition, piece.Data.tile);
+            _tilemap.SetTile(tilePosition, tileToUse);
         }
     }
 
@@ -330,13 +550,13 @@ public class Board : MonoBehaviour
         RectInt bounds = Bounds;
         int row = bounds.yMin;
         int linesCleared = 0;
-        var clearedRows = new List<int>();
+        _clearedRowsBuffer.Clear();
 
         while (row < bounds.yMax)
         {
             if (IsLineFull(row))
             {
-                clearedRows.Add(row);
+                _clearedRowsBuffer.Add(row);
                 LineClear(row);
                 linesCleared++;
             }
@@ -346,47 +566,60 @@ public class Board : MonoBehaviour
             }
         }
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.AddScore(linesCleared, clearedRows);
-        }
+        NotifyLinesCleared(linesCleared, _clearedRowsBuffer);
     }
 
     public IEnumerator ClearLinesAnimated()
     {
         RectInt bounds = Bounds;
-        var fullRows = new List<int>();
+        _clearedRowsBuffer.Clear();
 
         for (int row = bounds.yMin; row < bounds.yMax; row++)
         {
-            if (IsLineFull(row)) fullRows.Add(row);
+            if (IsLineFull(row))
+            {
+                _clearedRowsBuffer.Add(row);
+            }
         }
 
-        if (fullRows.Count == 0)
+        if (_clearedRowsBuffer.Count == 0)
         {
-            if (GameManager.Instance != null) GameManager.Instance.AddScore(0);
+            NotifyLinesCleared(0, null);
             yield break;
         }
 
         IsAnimatingLineClear = true;
-        var savedTiles = new Dictionary<Vector3Int, TileBase>();
+        _flashPositionsBuffer.Clear();
+        _flashTilesBuffer.Clear();
 
-        foreach (int row in fullRows)
+        int fullRowCount = _clearedRowsBuffer.Count;
+        for (int r = 0; r < fullRowCount; r++)
         {
+            int row = _clearedRowsBuffer[r];
             for (int col = bounds.xMin; col < bounds.xMax; col++)
             {
-                var pos = new Vector3Int(col, row, 0);
-                savedTiles[pos] = _tilemap.GetTile(pos);
+                Vector3Int pos = new Vector3Int(col, row, 0);
+                _flashPositionsBuffer.Add(pos);
+                _flashTilesBuffer.Add(_tilemap.GetTile(pos));
             }
         }
 
-        float interval = _lineClearFlashDuration / (_lineClearFlashCount * 2f);
+        UpdateCachedFlashWait();
+        int tileCount = _flashPositionsBuffer.Count;
+
         for (int blink = 0; blink < _lineClearFlashCount; blink++)
         {
-            foreach (var pos in savedTiles.Keys) _tilemap.SetTile(pos, null);
-            yield return new WaitForSeconds(interval);
-            foreach (var kvp in savedTiles) _tilemap.SetTile(kvp.Key, kvp.Value);
-            yield return new WaitForSeconds(interval);
+            for (int i = 0; i < tileCount; i++)
+            {
+                _tilemap.SetTile(_flashPositionsBuffer[i], null);
+            }
+            yield return _cachedFlashWait;
+
+            for (int i = 0; i < tileCount; i++)
+            {
+                _tilemap.SetTile(_flashPositionsBuffer[i], _flashTilesBuffer[i]);
+            }
+            yield return _cachedFlashWait;
         }
 
         int rowIdx = bounds.yMin;
@@ -405,12 +638,20 @@ public class Board : MonoBehaviour
             }
         }
 
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.AddScore(linesCleared, fullRows);
-        }
-
+        NotifyLinesCleared(linesCleared, _clearedRowsBuffer);
         IsAnimatingLineClear = false;
+    }
+
+    private void NotifyLinesCleared(int linesCleared, List<int> clearedRows)
+    {
+        if (_isManagedByContainer)
+        {
+            OnLinesCleared?.Invoke(linesCleared, clearedRows);
+        }
+        else if (GameManager.Instance != null)
+        {
+            GameManager.Instance.AddScore(linesCleared, clearedRows);
+        }
     }
 
     private bool IsLineFull(int row)
@@ -450,11 +691,22 @@ public class Board : MonoBehaviour
         }
     }
 
-    private void DisplayNextPiece(TetrominoData data)
+    private void RefreshNextQueueDisplay()
     {
-        if (_nextPieceTilemap == null) return;
-        _nextPieceTilemap.ClearAllTiles();
-        DrawPieceOnTilemap(_nextPieceTilemap, data, Vector3Int.zero);
+        _pieceRandomizer.PeekNextPieces(_nextQueuePreviewCount, _nextQueueBuffer);
+
+        if (_nextPieceTilemap != null)
+        {
+            _nextPieceTilemap.ClearAllTiles();
+            int count = _nextQueueBuffer.Count;
+            for (int i = 0; i < count; i++)
+            {
+                Vector3Int slotOffset = new Vector3Int(0, -i * _nextPieceVerticalSpacing, 0);
+                DrawPieceOnTilemap(_nextPieceTilemap, _nextQueueBuffer[i], slotOffset);
+            }
+        }
+
+        OnNextQueueUpdated?.Invoke(_nextQueueBuffer);
     }
 
     public static void DrawPieceOnTilemap(Tilemap tilemap, TetrominoData data, Vector3Int offset)

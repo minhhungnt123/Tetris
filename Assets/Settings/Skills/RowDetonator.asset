@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b6acc181deb456e4aa34c1019eed9511, type: 3}
+  m_Name: RowDetonator
+  m_EditorClassIdentifier: Assembly-CSharp::SkillDefinitionSO
+  _skillId: row_detonator
+  _displayName: Row Detonator
+  _description: "Ph\xE1t n\u1ED5 v\xE0 x\xF3a s\u1EA1ch to\xE0n b\u1ED9 c\xE1c h\xE0ng
+    ngang m\xE0 kh\u1ED1i g\u1EA1ch ch\u1EA1m v\xE0o m\xE0 kh\xF4ng c\u1EA7n l\u1EA5p
+    \u0111\u1EA7y 10 \xF4."
+  _skillType: 0
+  _skillIcon: {fileID: 0}
+  _themeColor: {r: 1, g: 0.45, b: 0.1, a: 1}
+  _flameCoreColor: {r: 1, g: 0.965, b: 0.702, a: 1}
+  _flameMidColor: {r: 1, g: 0.69, b: 0.125, a: 1}
+  _flameEdgeColor: {r: 1, g: 0.27, b: 0.094, a: 1}
+  _specialBlockTile: {fileID: 0}
+  _blastPreviewTile: {fileID: 0}
+  _energyCost: 100
+  _scoreMultiplier: 0.75
+  _blastRadius: 1
+  _blastFlashDuration: 0.24
+  _blastFlashCount: 2
