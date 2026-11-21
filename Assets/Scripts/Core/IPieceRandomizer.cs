@@ -9,5 +9,12 @@ public interface IPieceRandomizer
     void Initialize(IReadOnlyList<TetrominoData> availablePieces);
     TetrominoData GetNextPiece();
     TetrominoData PeekNextPiece();
+
+    /// <summary>
+    /// Xem trước <paramref name="count"/> khối tiếp theo và ghi vào <paramref name="resultsBuffer"/>
+    /// do caller cung cấp nhằm tránh cấp phát bộ nhớ (Zero-GC).
+    /// </summary>
+    void PeekNextPieces(int count, List<TetrominoData> resultsBuffer);
+
     void Reset();
 }

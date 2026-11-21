@@ -4,6 +4,7 @@ using UnityEngine.Tilemaps;
 /// <summary>
 /// Quản lý cơ chế Hold Piece (giữ khối):
 /// Lưu trữ khối được giữ, hiển thị preview trên Tilemap riêng và kiểm soát quyền hold trong 1 lượt (SRP).
+/// Nhận Tilemap qua Dependency Injection (không dùng GameObject.Find) để tương thích 1P & 2P.
 /// </summary>
 public class HoldPieceManager : MonoBehaviour
 {
@@ -20,16 +21,6 @@ public class HoldPieceManager : MonoBehaviour
         if (holdTilemap != null)
         {
             _holdPieceTilemap = holdTilemap;
-        }
-        else if (_holdPieceTilemap == null)
-        {
-            var holdGrid = GameObject.Find("HoldSlotGrid");
-            if (holdGrid != null) _holdPieceTilemap = holdGrid.GetComponentInChildren<Tilemap>();
-            if (_holdPieceTilemap == null)
-            {
-                var holdObj = GameObject.Find("HoldPieceTilemap");
-                if (holdObj != null) _holdPieceTilemap = holdObj.GetComponent<Tilemap>();
-            }
         }
         Clear();
     }
